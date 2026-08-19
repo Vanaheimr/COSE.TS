@@ -1,0 +1,30 @@
+{
+    "name": "@vanaheimr/cose",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0",
+    "author": "GraphDefined GmbH <achim.friedland@graphdefined.com>",
+    "description": "CBOR Object Signing and Encryption (RFC 9052) in TypeScript, on top of the Metrological CBOR codec — the TypeScript counterpart of Vanaheimr Styx's Illias/COSE.",
+    "homepage": "https://github.com/Vanaheimr/COSE.TS#readme",
+    "bugs": {
+        "url": "https://github.com/Vanaheimr/COSE.TS/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Vanaheimr/COSE.TS.git"
+    },
+    "comment": "The CBOR codec is reached through src/cbor.ts alone, and currently as a sibling checkout of MetrologicalCBOR.TS rather than as a dependency, because @vanaheimr/metrological-cbor is not published yet. Signing from source is also what the conformance suite needs. When that package ships, src/cbor.ts gains an ordinary import and this file a dependency.",
+    "scripts": {
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@noble/curves": "^2.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^26.2.0",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.10"
+    }
+}
