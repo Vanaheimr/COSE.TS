@@ -40,7 +40,8 @@ import { macTag, tagsEqual }             from './hmac.ts';
  * else will ever accept — a failure with no symptom until the day two
  * implementations meet.
  */
-export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac' | 'none';
+export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac'
+                            | 'aesgcm' | 'keywrap' | 'direct' | 'none';
 
 
 /** An algorithm in the COSE registry. */
@@ -76,6 +77,15 @@ export interface CoseAlgorithm {
      */
     readonly tagSize:      number | null;
 
+    /**
+     * The width of the key in bytes, for an algorithm that fixes one.
+     *
+     * AES algorithms do: `A128GCM` and `A256GCM` are two registered identifiers
+     * over one cipher, and the width is what tells them apart. The signature
+     * algorithms leave it to the curve or to the parameter set.
+     */
+    readonly keySize:      number | null;
+
     /** Whether this implementation can sign and verify with it. */
     readonly signing:      boolean;
 
@@ -91,6 +101,7 @@ interface AlgorithmSpec {
     readonly curve?:         CoseCurve;
     readonly parameterSet?:  string;
     readonly tagSize?:       number;
+    readonly keySize?:       number;
     readonly signing?:       boolean;
     readonly deprecated?:    boolean;
 }
@@ -105,6 +116,7 @@ const algorithm = (id: number, name: string, description: string,
     curve:         spec.curve        ?? null,
     parameterSet:  spec.parameterSet ?? null,
     tagSize:       spec.tagSize      ?? null,
+    keySize:       spec.keySize      ?? null,
     signing:       spec.signing      ?? false,
     deprecated:    spec.deprecated   ?? false,
 });
@@ -173,6 +185,33 @@ export const CoseAlgorithms = {
                        { family: 'hmac', hash: 'sha384', tagSize: 48 }),
     HMAC512_512: algorithm(   7, 'HMAC 512/512', 'HMAC w/ SHA-512',
                        { family: 'hmac', hash: 'sha512', tagSize: 64 }),
+
+    // AES-GCM [RFC 9053, Section 4.1], the content encryption algorithms.
+    // COSE fixes the nonce at 96 bits and the authentication tag at 128, so the
+    // key width is the only thing left for the identifier to name.
+    A128GCM: algorithm(   1, 'A128GCM', 'AES-GCM mode w/ 128-bit key, 128-bit tag',
+                       { family: 'aesgcm', keySize: 16, tagSize: 16 }),
+    A192GCM: algorithm(   2, 'A192GCM', 'AES-GCM mode w/ 192-bit key, 128-bit tag',
+                       { family: 'aesgcm', keySize: 24, tagSize: 16 }),
+    A256GCM: algorithm(   3, 'A256GCM', 'AES-GCM mode w/ 256-bit key, 128-bit tag',
+                       { family: 'aesgcm', keySize: 32, tagSize: 16 }),
+
+    // AES key wrap [RFC 9053, Section 6.2.1, RFC 3394]. A recipient algorithm:
+    // it carries a content key rather than content, and the width named here is
+    // that of the KEY-ENCRYPTION key, not of the key being wrapped.
+    A128KW:  algorithm(  -3, 'A128KW',  'AES Key Wrap w/ 128-bit key',
+                       { family: 'keywrap', keySize: 16 }),
+    A192KW:  algorithm(  -4, 'A192KW',  'AES Key Wrap w/ 192-bit key',
+                       { family: 'keywrap', keySize: 24 }),
+    A256KW:  algorithm(  -5, 'A256KW',  'AES Key Wrap w/ 256-bit key',
+                       { family: 'keywrap', keySize: 32 }),
+
+    // The recipient algorithm that transports nothing [RFC 9053, Section
+    // 6.1.1]: the recipient's key IS the content key. Its protected bucket and
+    // its ciphertext must both be empty, which is what makes a COSE_Mac with
+    // one direct recipient a COSE_Mac0 with extra ceremony.
+    direct:  algorithm(  -6, 'direct',  'Direct use of content encryption key (CEK)',
+                       { family: 'direct' }),
 
     // Digests, which are algorithms in the same registry but never sign.
     SHA256:  algorithm( -16, 'SHA-256', 'SHA-2 256-bit Hash', { hash: 'sha256' }),

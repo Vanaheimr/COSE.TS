@@ -15,31 +15,40 @@
  * one byte of a reading produce signatures that fail at the other, and that is
  * a conformance failure a test can catch.
  *
- * What is implemented: `COSE_Sign1` (tag 18) including detached payloads,
- * external additional authenticated data and the `crit` header parameter;
- * `COSE_Sign` (tag 98) with several independent signers; the version 2
- * countersignatures of RFC 9338; `COSE_Mac0` (tag 17) with the HMAC algorithms
- * of RFC 9053; COSE keys of key type EC2, OKP, AKP and Symmetric with the key
- * thumbprints of RFC 9679; the ECDSA algorithms of RFC 9053 and RFC 9864,
- * EdDSA of RFC 8032 and ML-DSA of RFC 9964; and the X.509 chains of RFC 9360,
- * parsed, walked to a trust anchor and bound to the key that signed.
+ * What is implemented: `COSE_Sign1` (tag 18) and `COSE_Sign` (tag 98);
+ * `COSE_Mac0` (tag 17) and `COSE_Mac` (tag 97) with HMAC; `COSE_Encrypt0`
+ * (tag 16) and `COSE_Encrypt` (tag 96) with AES-GCM; recipient structures
+ * carrying a content key by `direct` or AES key wrap; the version 2
+ * countersignatures of RFC 9338; COSE keys of key type EC2, OKP, AKP and
+ * Symmetric with the key thumbprints of RFC 9679; the ECDSA algorithms of
+ * RFC 9053 and RFC 9864, EdDSA of RFC 8032 and ML-DSA of RFC 9964; and the
+ * X.509 chains of RFC 9360, walked to a trust anchor and bound to the key that
+ * signed. Detached payloads, external additional authenticated data and the
+ * `crit` header parameter throughout.
  *
- * A `COSE_Mac0` is the structural twin of a `COSE_Sign1` and means something
- * entirely different: a MAC is symmetric, so whoever can verify one can produce
- * one, and it therefore proves nothing to any third party. That is why a
- * metrological record is signed. `signWith` and `macWith` refuse each other's
- * algorithms so that the two can not be confused by accident.
+ * The three families mean three different things, and the API keeps them
+ * apart. A **signature** says "the holder of that private key produced this",
+ * to anybody. A **MAC** says "someone holding the shared key produced this",
+ * and only to someone holding that key — so it proves nothing to a third
+ * party, and with several recipients nothing to the recipients either.
+ * **Encryption** says even less about origin: AEAD integrity means "whoever
+ * holds this key wrote this". That is why a metrological record is *signed*,
+ * and why a signed payload inside an encrypted envelope is how one gets both.
+ * `signWith` and `macWith` refuse each other's algorithms accordingly.
  *
- * What is not: `COSE_Mac` with recipient structures, AES-CBC-MAC — whose
- * safety within COSE rests on the encoding rather than on the primitive, see
- * RFC 9053 Section 3.2.1 — encryption, `COSE_Countersignature0`, and the
- * `x5bag` and `x5u` header parameters: a bag is an unordered heap with no path
- * to follow, and a URI is a fetch, which a signature library has no business
- * performing.
+ * What is not: AES-CBC-MAC — whose safety within COSE rests on the encoding
+ * rather than on the primitive, see RFC 9053 Section 3.2.1 — AES-CCM,
+ * ChaCha20/Poly1305, ECDH-based key agreement and the HKDF key derivations
+ * (they need COSE_KDF_Context, a structure of its own),
+ * `COSE_Countersignature0`, and the `x5bag` and `x5u` header parameters: a bag
+ * is an unordered heap with no path to follow, and a URI is a fetch, which a
+ * signature library has no business performing.
  */
 
-export { CoseError, notVerified, VERIFIED }         from './errors.ts';
-export type { NotVerified, Verification }           from './errors.ts';
+export { CoseError, notDecrypted, notVerified,
+         VERIFIED }                                 from './errors.ts';
+export type { Decryption, NotVerified,
+              Verification }                        from './errors.ts';
 
 export { bytesEqual, cbor, DETERMINISTIC,
          NO_BYTES, PRESERVE }                       from './cbor.ts';
@@ -94,6 +103,20 @@ export { COSE_MAC0_TAG, CoseMac0, MAC0_CONTEXT }     from './mac0.ts';
 export type { Mac0Options, Mac0VerifyOptions }      from './mac0.ts';
 
 export { hmac, macTag, tagsEqual }                  from './hmac.ts';
+
+export { aesGcmDecrypt, aesGcmEncrypt, aesKeyUnwrap,
+         aesKeyWrap, GCM_NONCE_SIZE, GCM_TAG_SIZE }  from './aes.ts';
+
+export { CoseRecipient, keyWrapAlgorithmFor }       from './recipient.ts';
+export type { RecipientOptions }                    from './recipient.ts';
+
+export { COSE_MAC_TAG, CoseMac, MAC_CONTEXT }       from './mac.ts';
+export type { MacOptions, MacVerifyOptions }        from './mac.ts';
+
+export { COSE_ENCRYPT0_TAG, COSE_ENCRYPT_TAG,
+         CoseEncrypt, CoseEncrypt0, encStructure,
+         ENCRYPT0_CONTEXT, ENCRYPT_CONTEXT }        from './encrypt.ts';
+export type { DecryptOptions, EncryptOptions }      from './encrypt.ts';
 
 export { contentsOf, contextTag, derBitString,
          derBitStringRaw, derBoolean, derInteger,

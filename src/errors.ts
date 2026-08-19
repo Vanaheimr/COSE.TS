@@ -57,3 +57,23 @@ export type NotVerified = Extract<Verification, { verified: false }>;
 /** A failed verification, with the reason it failed. */
 export const notVerified = (reason: string): NotVerified =>
     ({ verified: false, reason });
+
+
+/**
+ * The outcome of a decryption.
+ *
+ * Kept apart from {@link Verification} because the useful half is different: a
+ * verification yields a yes or a no, a decryption yields the plaintext or a
+ * reason. Note that there is no partial plaintext in the failure case and
+ * never can be — an AEAD failure means the whole message is unauthenticated,
+ * and handing back what was decrypted before the tag was checked is the classic
+ * way to build an oracle out of a decryptor.
+ */
+export type Decryption =
+    | { readonly decrypted: true;  readonly plaintext: Uint8Array }
+    | { readonly decrypted: false; readonly reason: string };
+
+
+/** A failed decryption, with the reason it failed. */
+export const notDecrypted = (reason: string): Extract<Decryption, { decrypted: false }> =>
+    ({ decrypted: false, reason });

@@ -68,9 +68,15 @@ import and `package.json` gains a dependency. Nothing else changes.
 - **The algorithm and curve registries**, including the fully-specified
   algorithms of [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864) and the
   brainpool curves registered by ISO/IEC 18013-5.
-- **`CoseMac0`** — a payload authenticated with a shared key (CBOR tag 17),
-  with the HMAC algorithms of [RFC 9053 §3.1](https://www.rfc-editor.org/rfc/rfc9053#section-3.1).
-  Not a small signature. See below.
+- **`CoseMac0` / `CoseMac`** — a payload authenticated with a shared key
+  (CBOR tags 17 and 97), with the HMAC algorithms of
+  [RFC 9053 §3.1](https://www.rfc-editor.org/rfc/rfc9053#section-3.1). Not a
+  small signature. See below.
+- **`CoseEncrypt0` / `CoseEncrypt`** — content encrypted with AES-GCM (CBOR
+  tags 16 and 96).
+- **`CoseRecipient`** — how a content key reaches a party: `direct` and AES key
+  wrap ([RFC 3394](https://www.rfc-editor.org/rfc/rfc3394)). This is what the
+  enveloped forms have and the bare ones do not.
 - **X.509 certificate chains** ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360),
   header parameters `x5chain` and `x5t`) — parsed, walked to a trust anchor,
   and bound to the key that signed. See below.
@@ -186,6 +192,73 @@ The identifier is CBC-MAC; the prose of the other RFC is wrong.
   agreed to, so `CoseMac0` refuses it — one of the key checks RFC 9053 §3.1
   asks for.
 
+#### Recipient structures, and what they cost
+
+`CoseMac` (tag 97) and `CoseEncrypt` (tag 96) differ from their bare
+counterparts in one element: a list of **recipient structures**, each
+delivering the one content key to one party by a route only that party can
+walk. `CoseMac0` and `CoseEncrypt0` assume both sides already hold the key;
+these solve the distribution problem inside the message.
+
+Two routes are implemented, and they are the two reachable from a pre-shared
+secret. **`direct`** transports nothing — the recipient's key *is* the content
+key, and the structure carries an empty protected bucket, an empty ciphertext
+and a key identifier. That makes a one-`direct`-recipient `CoseMac` a
+`CoseMac0` with ceremony, which is exactly why the bare forms exist. **AES key
+wrap** carries the content key encrypted under a key-encryption key; note that
+the algorithm follows the width of the *key-encryption* key, so `A256KW` wraps
+a 128-bit content key perfectly well. Key wrap is deterministic — no nonce, no
+salt — which is safe only because what it wraps is a uniformly random key
+rather than a message.
+
+**A recipient list costs more than bytes.** Every recipient holds the same
+content key afterwards, so with more than one of them the tag stops
+distinguishing them at all: any recipient can produce a message the others will
+accept as coming from the sender. A `CoseMac0` between two parties at least
+tells each of them that the other made it, on the grounds that they did not
+make it themselves; a `CoseMac` to three parties tells nobody that. RFC 9052
+§8.2 is blunt about it — a MAC *"cannot be used to prove the identity of the
+sender to a third party"*.
+
+Not implemented: ECDH key agreement and the HKDF-based key derivations. Both
+need `COSE_KDF_Context` ([RFC 9053 §5.2](https://www.rfc-editor.org/rfc/rfc9053#section-5.2)),
+a structure of its own carrying PartyU and PartyV information and the
+supplementary public info — and one whose fields, got subtly wrong, derive a
+key that agrees only with an implementation making the same mistake. It is a
+piece of work in its own right rather than a variation on this one.
+
+### Encryption
+
+`CoseEncrypt0.encrypt(plaintext, key, { iv })` and
+`CoseEncrypt.encrypt(plaintext, contentKey, recipients, { iv })`, with AES-GCM
+in all three key widths. Three things here differ from everything else in this
+package, and all three catch people out.
+
+**The `Enc_structure` has three elements, not four.** It is
+`[context, protected, external_aad]` — no payload. The payload is what is being
+*encrypted*; the `Enc_structure` is what is merely *authenticated* alongside
+it, as the AEAD's additional data, and the recipient rebuilds it from the
+message rather than receiving it.
+
+**The authentication tag is not a field.** AES-GCM's 16-byte tag is appended to
+the ciphertext and travels inside the same byte string.
+
+**The nonce is public and must never repeat.** It travels in the `iv` header
+parameter in the clear, and that is fine; using one twice with the same key is
+not. GCM fails catastrophically on nonce reuse — two messages under one nonce
+leak the XOR of their plaintexts *and* the authentication subkey, which lets an
+attacker forge afterwards. `iv` is therefore a required option with no default:
+only the caller knows which nonces it has spent.
+
+And the point to keep in view: an encrypted message says nothing about *who*
+sent it. AEAD integrity means "whoever holds this key wrote this". RFC 9052
+§8.3 calls it *"either no or very limited data origination"*. A signed payload
+inside an encrypted envelope is how one gets both — and COSE nests, so both can
+travel at once.
+
+Not implemented: AES-CCM, ChaCha20/Poly1305, and the `COSE_Encrypt` recipient
+routes listed above.
+
 #### The symmetric key
 
 Key type 4 [[RFC 9053 §7.3](https://www.rfc-editor.org/rfc/rfc9053#section-7.3)],
@@ -249,10 +322,10 @@ written here, which is not a convenience: a DER parser checked against
 certificates its own package produced would agree with itself about any
 misreading whatsoever.
 
-Not implemented: `COSE_Countersignature0`, MAC, encryption, and the `x5bag`
-and `x5u` header parameters — a bag is an unordered heap with no path to
-follow, and a URI is a fetch, which a signature library has no business
-performing.
+Not implemented: `COSE_Countersignature0`, AES-CBC-MAC, AES-CCM,
+ChaCha20/Poly1305, ECDH-based key agreement, and the `x5bag` and `x5u` header
+parameters — a bag is an unordered heap with no path to follow, and a URI is a
+fetch, which a signature library has no business performing.
 
 ## Signing and verifying
 
@@ -341,6 +414,16 @@ uses — same RFCs, same appendices, same transcription:
   pinned against that example all the same — its 37 bytes are parsed, checked
   field by field, re-encoded identically and its MAC_structure asserted — and
   the primitive against these.
+- **RFC 9052 Appendix C.5.4 and the COSE working group examples** — for the
+  encrypted and enveloped structures. C.5.4 is a `COSE_Mac` whose recipient
+  wraps the content key under a published 256-bit key: unwrapping it and
+  recomputing the tag reproduces the RFC's published value byte for byte, which
+  pins the key wrap, the recipient structure, the `"MAC"` context and HMAC in
+  one chain. The working group's examples carry whole AES-GCM messages
+  *together with their intermediates* — the `Enc_structure` as hex, the content
+  key, the nonce — and every one of those is checked, not merely the final
+  bytes: a message that comes out right by way of a wrong additional-data
+  structure stops coming out right the moment anything changes.
 - **A certificate corpus minted by Bouncy Castle** — fifteen certificates and
   the hierarchies they form, read back here field by field and walked to their
   anchors at a fixed instant. They cover an ECDSA root signing a brainpool
