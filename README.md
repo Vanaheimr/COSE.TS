@@ -1,5 +1,10 @@
 # Vanaheimr COSE (TypeScript)
 
+[![CI](https://github.com/Vanaheimr/COSE.TS/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/COSE.TS/actions/workflows/ci.yml)
+[![Nightly](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml/badge.svg)](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml)
+[![Cross-signing](https://img.shields.io/github/actions/workflow/status/Vanaheimr/MCBORConformanceTests/ci.yml?branch=master&label=cross-signing%20vs.%20Styx)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE.md)
+
 **CBOR Object Signing and Encryption** ([RFC 9052](https://www.rfc-editor.org/rfc/rfc9052))
 in TypeScript, built on the CBOR codec of
 [MetrologicalCBOR.TS](https://github.com/Vanaheimr/MetrologicalCBOR.TS) — the
@@ -182,6 +187,26 @@ them, so that curve is checked by arithmetic identity instead — the generator
 lies on the curve, and the order really is the order of the generator — and
 then, decisively, by the conformance suite comparing its signatures against a
 second implementation of the same curve.
+
+## Continuous integration
+
+`ci.yml` runs the vectors above on Node 20, 22 and 24 on Linux, and on Node 22
+on Windows and macOS. Both checkouts land as siblings, since that is the layout
+[`src/cbor.ts`](src/cbor.ts) expects; the codec is checked out and not
+installed, because it has no runtime dependencies to install.
+
+`nightly.yml` is a real drift detector rather than the same run on a timer.
+Two foundations move without a commit landing here: the CBOR codec, taken from
+another repository's master, and `@noble/curves`, which pull requests install
+from the lock file and the nightly installs without one. Either can break these
+tests overnight — the curve library in particular has already done it once, by
+normalising ECDSA's `s` where COSE does not.
+
+The third badge is the one that matters most and belongs to another repository:
+[MCBORConformanceTests](https://github.com/Vanaheimr/MCBORConformanceTests)
+signs every case with **both** this implementation and the C# one and hands
+each message to the other to verify. Nothing in this repository can catch two
+implementations that quietly disagree about a byte; that suite is what does.
 
 ## A note on German calibration law
 

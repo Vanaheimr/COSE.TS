@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  verify:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:   [ubuntu-latest]
+        node: ['20', '22', '24']
+        include:
+          - os:   windows-latest
+            node: '22'
+          - os:   macos-latest
+            node: '22'
+
+    steps:
+
+      # The two checkouts have to land as siblings, because that is the layout
+      # src/cbor.ts expects: it reaches for ../../MetrologicalCBOR.TS/src
+      # rather than for node_modules, since @vanaheimr/metrological-cbor is not
+      # published yet — and since what this signs has to be what that codec
+      # produces today rather than at its last release. When the package ships,
+      # the second checkout goes away with the import that needs it.
+      - uses: actions/checkout@v4
+        with:
+          path: COSE.TS
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Vanaheimr/MetrologicalCBOR.TS
+          path: MetrologicalCBOR.TS
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: COSE.TS/package-lock.json
+
+      # Deliberately no install in MetrologicalCBOR.TS: that library has zero
+      # runtime dependencies and is imported from source, so a bare checkout of
+      # it is everything this needs. If that ever stops being true, it stops
+      # here rather than in somebody's editor.
+      - name: Install dependencies
+        working-directory: COSE.TS
+        run: npm ci
+
+      - name: Type check
+        working-directory: COSE.TS
+        run: npm run typecheck
+
+      # RFC 9052 C.2.1/C.1.1/C.1.2, RFC 9338 A.2.1, RFC 6979 A.2.5, the
+      # brainpoolP320r1 parameters of RFC 5639 and the worked signed record of
+      # the Metrological CBOR specification — every one of them a byte string
+      # somebody else published.
+      - name: Test against the published vectors
+        working-directory: COSE.TS
+        run: npm test

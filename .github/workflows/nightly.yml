@@ -1,0 +1,67 @@
+name: Nightly
+
+# The counterpart to ci.yml, and here it is a genuine drift detector rather
+# than the same run on a timer. This repository has two moving foundations it
+# does not pin: the CBOR codec it signs with, which lives in another repository
+# and is taken from its master, and @noble/curves, which every pull request
+# installs from the lock file. Either can break these tests without a single
+# commit landing here, and a push-triggered workflow would only notice the next
+# time somebody happened to push.
+#
+# Two things worth knowing about scheduled workflows: they only ever run on the
+# default branch, and GitHub disables them after 60 days without any repository
+# activity. If this stops reporting, that is the first thing to check.
+on:
+  schedule:
+    # 03:37 UTC. Not on the hour: GitHub's scheduler is busiest then and delays
+    # runs by tens of minutes.
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  verify:
+    name: Full verification on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24', 'latest']
+
+    steps:
+
+      - uses: actions/checkout@v4
+        with:
+          path: COSE.TS
+
+      # The current master of the codec, which is the whole point of the
+      # nightly: a change there that alters one byte of an encoding would
+      # invalidate every signature made over the old bytes, and this is where
+      # that surfaces.
+      - uses: actions/checkout@v4
+        with:
+          repository: Vanaheimr/MetrologicalCBOR.TS
+          path: MetrologicalCBOR.TS
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies without the lock file
+        # Catches breakage introduced by new releases of the one runtime
+        # dependency — and of the curve library in particular, where a changed
+        # default has already cost this project a day: @noble/curves normalises
+        # ECDSA's `s` to its low form unless told otherwise, and COSE does not.
+        working-directory: COSE.TS
+        run: npm install
+
+      - name: Type check
+        working-directory: COSE.TS
+        run: npm run typecheck
+
+      - name: Test against the published vectors
+        working-directory: COSE.TS
+        run: npm test
