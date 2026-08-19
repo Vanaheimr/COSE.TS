@@ -61,9 +61,10 @@ import and `package.json` gains a dependency. Nothing else changes.
 - **Countersignatures** ([RFC 9338](https://www.rfc-editor.org/rfc/rfc9338),
   header parameter 11) on a `CoseSign1` — a signature *of a signature*, in the
   version 2 form that actually covers the signature it countersigns.
-- **`CoseKey`** — COSE keys of key type EC2 ([RFC 9052 §7](https://www.rfc-editor.org/rfc/rfc9052#section-7)),
-  including compressed `y`, and COSE Key Thumbprints
-  ([RFC 9679](https://www.rfc-editor.org/rfc/rfc9679)).
+- **`CoseKey`** — COSE keys of key type EC2 ([RFC 9052 §7](https://www.rfc-editor.org/rfc/rfc9052#section-7),
+  including compressed `y`), OKP, and AKP
+  ([RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)), with the COSE Key
+  Thumbprints of [RFC 9679](https://www.rfc-editor.org/rfc/rfc9679).
 - **The algorithm and curve registries**, including the fully-specified
   algorithms of [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864) and the
   brainpool curves registered by ISO/IEC 18013-5.
@@ -74,6 +75,31 @@ import and `package.json` gains a dependency. Nothing else changes.
 | `ESP256` / `ESP384` / `ESP512` | −9 / −51 / −52 | P-256 / P-384 / P-521 | SHA-256 / 384 / 512 |
 | `ESB256` / `ESB320` / `ESB384` / `ESB512` | −265 / −266 / −267 / −268 | brainpoolP256r1 / P320r1 / P384r1 / P512r1 | SHA-256 / 384 / 384 / 512 |
 | `ES256K` | −47 | secp256k1 | SHA-256 |
+| `Ed25519` / `Ed448` | −19 / −53 | Ed25519 / Ed448 | *(none — pure)* |
+| `ML-DSA-44` / `-65` / `-87` | −48 / −49 / −50 | *(none — an algorithm key pair)* | *(none — pure)* |
+
+**Two of those three families are pure**: EdDSA ([RFC 8032](https://www.rfc-editor.org/rfc/rfc8032))
+and ML-DSA ([FIPS 204](https://doi.org/10.6028/NIST.FIPS.204), registered for
+COSE by [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)) sign the
+`Sig_structure` itself rather than a digest of it. Handing a pure signer a hash
+yields a signature that is valid for the hash and that nobody else accepts —
+which is why the family is a property of the algorithm here and not an
+afterthought.
+
+They also bring two more key types. EdDSA uses **OKP**, where the public key is
+the whole of `x` and there is no `y`. ML-DSA uses **AKP**, a key pair belonging
+to an algorithm rather than to a curve — and there the labels shift underfoot:
+`−1` is the public key and `−2` the private one, where an EC2 or OKP key has
+the curve and the x coordinate. Parsing therefore establishes the key type
+before it reads anything else. Two further RFC 9964 particulars: `priv` is the
+**32-byte seed**, not the expanded secret key, and the thumbprint covers `alg`,
+because an ML-DSA public key does not say which parameter set produced it.
+
+EdDSA is deterministic by construction; ML-DSA is not, and RFC 9964 does not
+choose. This library always takes the deterministic variant of FIPS 204, where
+the per-signature randomness is 32 zero bytes — the choice that decides whether
+two implementations can be compared byte for byte or only asked whether each
+accepts the other.
 
 Every EC2 curve in the COSE registry is computable here. **brainpoolP320r1 is
 the one this package defines itself**, in [`src/ecdsa.ts`](src/ecdsa.ts), from
@@ -86,7 +112,7 @@ checks that the order really is the order, and the conformance suite signs with
 them and compares the bytes against Bouncy Castle's own brainpoolP320r1. A
 single wrong digit survives none of the three.
 
-Not implemented: `COSE_Countersignature0`, EdDSA, MAC, encryption, and the
+Not implemented: `COSE_Countersignature0`, MAC, encryption, and the
 X.509 header parameters of [RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)
 beyond carrying them — a chain that travels is read back unchanged, but nothing
 here validates one against a trust anchor. Styx does; this does not, and a
@@ -169,6 +195,9 @@ uses — same RFCs, same appendices, same transcription:
   notation only, assembled here from its documented parts. That both its body
   signature and its countersignature then verify is what proves the assembly.
 - **RFC 6979 A.2.5** — the deterministic P-256 signatures, reproduced exactly.
+- **RFC 8032 §7.1 and §7.4** — Ed25519 and Ed448, also reproduced exactly, and
+  that is a stronger check than any ECDSA vector allows: EdDSA has no nonce to
+  draw, so a published signature is not merely verifiable but *recomputable*.
 - **The worked signed record of the specification** — 713 bytes produced by the
   C# implementation: the station's signature verifies *and is reproduced byte
   for byte*, both meter readings verify and are reproduced, the operator's
@@ -186,7 +215,9 @@ RFC 5639 publishes brainpoolP320r1's domain parameters and no ECDSA vector for
 them, so that curve is checked by arithmetic identity instead — the generator
 lies on the curve, and the order really is the order of the generator — and
 then, decisively, by the conformance suite comparing its signatures against a
-second implementation of the same curve.
+second implementation of the same curve. ML-DSA is checked the same way, by the
+properties RFC 9964 pins down (the sizes, the seed-derived key pair, the
+label-shifting AKP parameters) and then by that same comparison.
 
 ## Continuous integration
 
