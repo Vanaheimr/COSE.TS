@@ -68,6 +68,9 @@ import and `package.json` gains a dependency. Nothing else changes.
 - **The algorithm and curve registries**, including the fully-specified
   algorithms of [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864) and the
   brainpool curves registered by ISO/IEC 18013-5.
+- **`CoseMac0`** — a payload authenticated with a shared key (CBOR tag 17),
+  with the HMAC algorithms of [RFC 9053 §3.1](https://www.rfc-editor.org/rfc/rfc9053#section-3.1).
+  Not a small signature. See below.
 - **X.509 certificate chains** ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360),
   header parameters `x5chain` and `x5t`) — parsed, walked to a trust anchor,
   and bound to the key that signed. See below.
@@ -114,6 +117,99 @@ is not on the curve, [`tests/brainpool.test.ts`](tests/brainpool.test.ts)
 checks that the order really is the order, and the conformance suite signs with
 them and compares the bytes against Bouncy Castle's own brainpoolP320r1. A
 single wrong digit survives none of the three.
+
+### Message authentication is not signing
+
+`CoseMac0` is the structural twin of `CoseSign1`: four elements in the same
+order, CBOR tag 17 against 18, and a MAC_structure differing from the
+Sig_structure in one string — `"MAC0"` where the other says `"Signature1"`.
+Everything the signature code learned applies unchanged: the protected bucket
+kept verbatim, the CBOR tag not covered, detached payloads, external additional
+authenticated data.
+
+**What is not the same is what a verified message means**, and that difference
+is the whole reason this section exists rather than a line in the table above.
+
+A signature says *"the holder of that private key produced this"*, to anybody
+who cares to check. A tag says *"someone holding the shared key produced this"*
+— and it says it only to someone who holds that key too, because verifying one
+requires the very key that creates one. Between two parties that is still
+useful: each knows the other made it, having not made it themselves. Towards a
+third party it is worth nothing, and a party who later denies having produced a
+message cannot be contradicted with a tag.
+
+That is why a metrological record is **signed**. The customer, the operator and
+the regulator all have to be able to check a reading, and none of them may be
+able to manufacture one. What a MAC buys instead is size and speed: eight bytes
+and one pass of a hash, against sixty-four bytes and a curve multiplication for
+the smallest signature here — or 4627 bytes post-quantum. It belongs where the
+two ends of a link already share a secret and want cheap tamper detection, with
+the durable evidence carried by a signature underneath. COSE nests, so both can
+travel at once.
+
+The API keeps them apart deliberately: `signWith` refuses an HMAC algorithm and
+`macWith` refuses a signature one, so neither can stand in for the other by
+accident.
+
+#### Only HMAC, and why
+
+[RFC 9053 §3.2](https://www.rfc-editor.org/rfc/rfc9053#section-3.2) also
+registers AES-CBC-MAC (algorithms 14, 15, 25, 26). It is deliberately absent
+here. Raw CBC-MAC is secure only for messages of a **fixed** length: given the
+tag `T` of a one-block message `M`, the two-block message `M ‖ (T ⊕ M)` has the
+very same tag, which is a forgery constructed without the key. §3.2.1 says so
+itself, and names what saves it inside COSE — *"the current structure mitigates
+this problem, as a specific encoding structure that includes lengths is built
+and signed"*. Its safety there rests on the MAC_structure, not on the
+primitive. HMAC needs no such argument, and it is what a device without an AES
+accelerator would reach for anyway.
+
+Worth knowing if you ever read the two RFCs side by side: RFC 9052's own
+Appendix C.6.1 describes algorithm 15 as *"AES-CMAC"*, while RFC 9053 §3.2
+states outright that AES-CBC-MAC **is not** AES-CMAC ([RFC 4493](https://www.rfc-editor.org/rfc/rfc4493)),
+which is a different construction that fixes exactly the length problem above.
+The identifier is CBC-MAC; the prose of the other RFC is wrong.
+
+#### Three details that are easy to get backwards
+
+- **Truncation applies to the output, never to the key.** `HMAC 256/64` is the
+  leftmost eight bytes of the full HMAC-SHA-256. An implementation that
+  shortened the key instead would produce tags nobody else accepts, and would
+  verify its own perfectly.
+- **The comparison is constant time.** A byte-by-byte compare returning early
+  tells an attacker how many leading bytes of a guessed tag were right, which
+  turns forging a 32-byte tag from 2^256 work into 32 × 256. Signature
+  verification has no equivalent exposure, because everything it compares is
+  public — this is a requirement a MAC has and a signature does not.
+- **A key issued for one algorithm is not talked into another.** Using an
+  `HMAC 256/256` key to produce a 64-bit tag is a downgrade its holder never
+  agreed to, so `CoseMac0` refuses it — one of the key checks RFC 9053 §3.1
+  asks for.
+
+#### The symmetric key
+
+Key type 4 [[RFC 9053 §7.3](https://www.rfc-editor.org/rfc/rfc9053#section-7.3)],
+carrying its value under label `−1`. That label now means a **third** thing:
+the curve on an EC2 or OKP key, the public key on an algorithm key pair, and
+the shared secret here — which is why the key type is established in a pass of
+its own before anything else is read.
+
+`publicKey()` throws on one rather than returning it unchanged. RFC 9053 states
+outright that the structure *"does not have a form that contains only public
+members"*, so stripping the private fields would hand a caller the shared
+secret under a name promising the opposite.
+
+Its thumbprint [[RFC 9679 §4.4](https://www.rfc-editor.org/rfc/rfc9679#section-4.4)]
+covers `kty` and `k` — and is a hash **of the secret**. §7 of the same RFC warns
+about it plainly: a low-entropy key can simply be looked up in a precomputed
+table, so thumbprints MUST NOT be used with passwords or anything resembling
+one.
+
+No key length is enforced. RFC 9053 says a key SHOULD be as wide as the hash
+output, which is advice about key management rather than a rule about the
+primitive — RFC 2104 accepts any width, and the published vectors of RFC 4231
+include a four-byte key. What a caller must not do is derive one from a
+password, and no length check would catch that.
 
 ### Certificate chains
 
@@ -238,6 +334,13 @@ uses — same RFCs, same appendices, same transcription:
 - **RFC 8032 §7.1 and §7.4** — Ed25519 and Ed448, also reproduced exactly, and
   that is a stronger check than any ECDSA vector allows: EdDSA has no nonce to
   draw, so a published signature is not merely verifiable but *recomputable*.
+- **RFC 4231** — the canonical HMAC-SHA-2 vectors, all three digests, including
+  the four-byte key and the one longer than the block size. RFC 9052's only
+  `COSE_Mac0` example uses AES-CBC-MAC rather than HMAC, so no published
+  message pins both the structure and the primitive at once; the structure is
+  pinned against that example all the same — its 37 bytes are parsed, checked
+  field by field, re-encoded identically and its MAC_structure asserted — and
+  the primitive against these.
 - **A certificate corpus minted by Bouncy Castle** — fifteen certificates and
   the hierarchies they form, read back here field by field and walked to their
   anchors at a fixed instant. They cover an ECDSA root signing a brainpool

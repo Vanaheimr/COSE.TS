@@ -45,6 +45,9 @@ import type { MldsaParameterSet }             from './mldsa.ts';
 /** Key type 7, a key pair belonging to an algorithm rather than a curve. */
 export const KEY_TYPE_AKP = 7;
 
+/** Key type 4, a shared secret [RFC 9053, Section 7.3]. */
+export const KEY_TYPE_SYMMETRIC = 4;
+
 
 /**
  * The labels of a COSE *key*, which are not the labels of a header bucket:
@@ -66,6 +69,11 @@ export const KeyLabel = {
     // AKP [RFC 9964] — note the collision with the two above.
     pub:           -1,
     priv:          -2,
+
+    // Symmetric [RFC 9053, Section 7.3] — and that is label −1 meaning a
+    // third thing: the curve on an EC2 or OKP key, the public key on an AKP
+    // one, and here the shared secret itself.
+    k:             -1,
 } as const;
 
 
@@ -114,6 +122,7 @@ interface CoseKeyFields {
     d:              Uint8Array | null;
     pub:            Uint8Array | null;
     priv:           Uint8Array | null;
+    k:              Uint8Array | null;
     additional:     readonly CborEntry[];
 }
 
@@ -137,6 +146,9 @@ export class CoseKey {
     public readonly pub:            Uint8Array | null;
     public readonly priv:           Uint8Array | null;
 
+    /** Symmetric: the shared secret. There is no public half of one. */
+    public readonly k:              Uint8Array | null;
+
     /** Header parameters this implementation does not know, kept for the round trip. */
     public readonly additional:     readonly CborEntry[];
 
@@ -152,6 +164,7 @@ export class CoseKey {
         this.d              = fields.d;
         this.pub            = fields.pub;
         this.priv           = fields.priv;
+        this.k              = fields.k;
         this.additional     = fields.additional;
     }
 
@@ -168,6 +181,7 @@ export class CoseKey {
             d:              this.d,
             pub:            this.pub,
             priv:           this.priv,
+            k:              this.k,
             additional:     this.additional,
         };
     }
@@ -182,9 +196,14 @@ export class CoseKey {
         return this.curveId === null ? null : curveById(this.curveId);
     }
 
-    /** Whether this key carries private key material. */
+    /**
+     * Whether this key carries secret key material.
+     *
+     * A symmetric key is *always* secret — it has nothing else — which is why
+     * `k` counts here beside the two private halves.
+     */
     public get isPrivate(): boolean {
-        return this.d !== null || this.priv !== null;
+        return this.d !== null || this.priv !== null || this.k !== null;
     }
 
 
@@ -299,6 +318,29 @@ export class CoseKey {
     }
 
 
+    /**
+     * A symmetric key, which is a shared secret and nothing else.
+     *
+     * No length is enforced. RFC 9053 says an HMAC key SHOULD be as wide as
+     * the hash output, which is advice about key management rather than a rule
+     * about the primitive — RFC 2104 accepts any width and the published test
+     * vectors of RFC 4231 include a four-byte key. What a caller must not do
+     * is derive one from a password, and no length check would catch that.
+     */
+    public static fromSymmetricKey(k:     Uint8Array,
+                                   parts: CoseKeyParts = {}): CoseKey {
+
+        if (k.length === 0)
+            throw new CoseError('A symmetric COSE key must carry a key value!');
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_SYMMETRIC, parts),
+            k,
+        });
+
+    }
+
+
     /** A public octet key pair, which is the whole of `x` and nothing else. */
     public static fromOkpPublicKey(curve: CoseCurve,
                                    x:     Uint8Array,
@@ -355,9 +397,13 @@ export class CoseKey {
         // costs one loop and survives a map in any order.
         const keyType = CoseKey.readKeyType(value.entries);
 
-        return keyType === KEY_TYPE_AKP
-                   ? CoseKey.parseAkp(value.entries, keyType)
-                   : CoseKey.parseCurveKey(value.entries, keyType);
+        if (keyType === KEY_TYPE_AKP)
+            return CoseKey.parseAkp(value.entries, keyType);
+
+        if (keyType === KEY_TYPE_SYMMETRIC)
+            return CoseKey.parseSymmetric(value.entries, keyType);
+
+        return CoseKey.parseCurveKey(value.entries, keyType);
 
     }
 
@@ -456,6 +502,78 @@ export class CoseKey {
             d,
             pub:   null,
             priv:  null,
+            k:     null,
+            additional,
+        });
+
+    }
+
+
+    private static parseSymmetric(entries: readonly CborEntry[], keyType: number): CoseKey {
+
+        let keyIdentifier: Uint8Array | null    = null;
+        let algorithm:     CoseAlgorithm | null = null;
+        let keyOperations: CborValue | null     = null;
+        let k:             Uint8Array | null    = null;
+
+        const additional: CborEntry[] = [];
+
+        for (const [key, item] of entries) {
+
+            if (key.type !== 'int') {
+                additional.push([key, item]);
+                continue;
+            }
+
+            switch (Number(key.value)) {
+
+                case KeyLabel.keyType:
+                    break;
+
+                case KeyLabel.keyIdentifier:
+                    keyIdentifier = bytesOf(item, 'The key identifier of a COSE key');
+                    break;
+
+                case KeyLabel.algorithm:
+                    algorithm = algorithmFromCbor(item);
+                    break;
+
+                case KeyLabel.keyOperations:
+                    if (item.type !== 'array')
+                        throw new CoseError('The key operations of a COSE key must be an array!');
+                    keyOperations = item;
+                    break;
+
+                case KeyLabel.k:
+                    k = bytesOf(item, 'The key value of a symmetric COSE key');
+                    break;
+
+                default:
+                    additional.push([key, item]);
+                    break;
+
+            }
+
+        }
+
+        // "For symmetric keys, it is REQUIRED that 'k' be present in the
+        // structure" [RFC 9053, Section 7.3] — and unlike a missing public
+        // key there is nothing to recompute it from.
+        if (k === null)
+            throw new CoseError('A COSE key of key type Symmetric must carry its key value [RFC 9053, Section 7.3]!');
+
+        return new CoseKey({
+            keyType,
+            keyIdentifier,
+            algorithm,
+            keyOperations,
+            curveId: null,
+            x:       null,
+            y:       null,
+            d:       null,
+            pub:     null,
+            priv:    null,
+            k,
             additional,
         });
 
@@ -524,6 +642,7 @@ export class CoseKey {
             d:        null,
             pub,
             priv,
+            k:     null,
             additional,
         });
 
@@ -599,6 +718,16 @@ export class CoseKey {
 
         }
 
+        // Encoding a symmetric key writes the secret out, always: there is no
+        // half of it that can be published. RFC 9053 says as much — "care must
+        // be taken that it is never transmitted accidentally or insecurely".
+        else if (this.keyType === KEY_TYPE_SYMMETRIC) {
+
+            if (this.k !== null)
+                entries.push([cbor.int(KeyLabel.k), cbor.bytes(this.k)]);
+
+        }
+
         else {
 
             if (this.curveId !== null)
@@ -628,9 +757,22 @@ export class CoseKey {
     }
 
 
-    /** This key without its private half. */
+    /**
+     * This key without its private half.
+     *
+     * A symmetric key has no such form, and saying so is the point rather than
+     * a limitation: RFC 9053 states outright that the structure "does not have
+     * a form that contains only public members". Returning the key unchanged
+     * here — which is what stripping `d` and `priv` from it would do — would
+     * hand a caller the shared secret under a name promising the opposite.
+     */
     public publicKey(): CoseKey {
+
+        if (this.keyType === KEY_TYPE_SYMMETRIC)
+            throw new CoseError('A COSE key of key type Symmetric has no public half [RFC 9053, Section 7.3]!');
+
         return this.copy({ d: null, priv: null });
+
     }
 
 
@@ -662,6 +804,9 @@ export class CoseKey {
      * EC2, the whole of `x` for OKP, `pub` for AKP.
      */
     public publicKeyBytes(): Uint8Array {
+
+        if (this.keyType === KEY_TYPE_SYMMETRIC)
+            throw new CoseError('A COSE key of key type Symmetric has no public key [RFC 9053, Section 7.3]!');
 
         if (this.keyType === KEY_TYPE_AKP) {
 
@@ -707,8 +852,20 @@ export class CoseKey {
     }
 
 
-    /** The private key: the scalar for EC2 and OKP, the seed for AKP. */
+    /**
+     * The secret this key holds: the scalar for EC2 and OKP, the seed for AKP,
+     * the shared key itself for a symmetric one.
+     */
     public privateKeyBytes(): Uint8Array {
+
+        if (this.keyType === KEY_TYPE_SYMMETRIC) {
+
+            if (this.k === null)
+                throw new CoseError('This COSE key carries no key value!');
+
+            return this.k;
+
+        }
 
         if (this.keyType === KEY_TYPE_AKP) {
 
@@ -795,6 +952,24 @@ export class CoseKey {
 
         }
 
+        if (this.keyType === KEY_TYPE_SYMMETRIC) {
+
+            if (this.k === null)
+                throw new CoseError('The thumbprint of a COSE key of key type Symmetric needs its key value!');
+
+            // RFC 9679 Section 4.4 defines this, and Section 7 immediately
+            // warns about it: the thumbprint of a symmetric key is a hash of
+            // the secret, so a low-entropy one can simply be looked up in a
+            // precomputed table. It is a usable identifier for a randomly
+            // chosen key of at least 128 bits and MUST NOT be used for
+            // passwords or anything like them.
+            return cbor.encode(cbor.map([
+                [cbor.int(KeyLabel.keyType), cbor.int(this.keyType)],
+                [cbor.int(KeyLabel.k),       cbor.bytes(this.k)],
+            ]), DETERMINISTIC);
+
+        }
+
         throw new CoseError(`The thumbprint of a COSE key of key type ${String(this.keyType)} is not implemented!`);
 
     }
@@ -852,6 +1027,7 @@ function empty(keyType: number, parts: CoseKeyParts): CoseKeyFields {
         d:              null,
         pub:            null,
         priv:           null,
+        k:              null,
         additional:     [],
     };
 }

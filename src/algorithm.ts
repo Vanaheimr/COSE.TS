@@ -27,6 +27,7 @@ import { digest, sign, verify }          from './ecdsa.ts';
 import type { DigestAlgorithm }          from './ecdsa.ts';
 import { eddsaSign, eddsaVerify }        from './eddsa.ts';
 import { mldsaSign, mldsaVerify }        from './mldsa.ts';
+import { macTag, tagsEqual }             from './hmac.ts';
 
 
 /**
@@ -39,7 +40,7 @@ import { mldsaSign, mldsaVerify }        from './mldsa.ts';
  * else will ever accept — a failure with no symptom until the day two
  * implementations meet.
  */
-export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'none';
+export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac' | 'none';
 
 
 /** An algorithm in the COSE registry. */
@@ -66,6 +67,15 @@ export interface CoseAlgorithm {
     /** The ML-DSA parameter set, or null for everything else. */
     readonly parameterSet: string | null;
 
+    /**
+     * The width of the authentication tag in bytes, for a MAC algorithm.
+     *
+     * It is part of the identifier rather than a parameter: `HMAC 256/64` and
+     * `HMAC 256/256` are two registered algorithms over the same hash, and a
+     * verifier learns which width to expect from the message.
+     */
+    readonly tagSize:      number | null;
+
     /** Whether this implementation can sign and verify with it. */
     readonly signing:      boolean;
 
@@ -80,6 +90,7 @@ interface AlgorithmSpec {
     readonly hash?:          DigestAlgorithm;
     readonly curve?:         CoseCurve;
     readonly parameterSet?:  string;
+    readonly tagSize?:       number;
     readonly signing?:       boolean;
     readonly deprecated?:    boolean;
 }
@@ -93,6 +104,7 @@ const algorithm = (id: number, name: string, description: string,
     hash:          spec.hash         ?? null,
     curve:         spec.curve        ?? null,
     parameterSet:  spec.parameterSet ?? null,
+    tagSize:       spec.tagSize      ?? null,
     signing:       spec.signing      ?? false,
     deprecated:    spec.deprecated   ?? false,
 });
@@ -148,6 +160,19 @@ export const CoseAlgorithms = {
                        { family: 'mldsa', parameterSet: 'ML-DSA-65', signing: true }),
     MLDSA87: algorithm( -50, 'ML-DSA-87', 'CBOR Object Signing Algorithm for ML-DSA-87',
                        { family: 'mldsa', parameterSet: 'ML-DSA-87', signing: true }),
+
+    // HMAC [RFC 9053, Section 3.1]. A message authentication code rather than
+    // a signature: symmetric, so whoever verifies one can produce one, and
+    // `signing` is therefore false for all four. The name is "hash size /
+    // tag size", and the tag is the leftmost bits of the full HMAC.
+    HMAC256_64:  algorithm(   4, 'HMAC 256/64',  'HMAC w/ SHA-256 truncated to 64 bits',
+                       { family: 'hmac', hash: 'sha256', tagSize:  8 }),
+    HMAC256_256: algorithm(   5, 'HMAC 256/256', 'HMAC w/ SHA-256',
+                       { family: 'hmac', hash: 'sha256', tagSize: 32 }),
+    HMAC384_384: algorithm(   6, 'HMAC 384/384', 'HMAC w/ SHA-384',
+                       { family: 'hmac', hash: 'sha384', tagSize: 48 }),
+    HMAC512_512: algorithm(   7, 'HMAC 512/512', 'HMAC w/ SHA-512',
+                       { family: 'hmac', hash: 'sha512', tagSize: 64 }),
 
     // Digests, which are algorithms in the same registry but never sign.
     SHA256:  algorithm( -16, 'SHA-256', 'SHA-2 256-bit Hash', { hash: 'sha256' }),
@@ -285,6 +310,47 @@ export function signWith(value:       CoseAlgorithm,
             throw new CoseError(`The COSE algorithm '${value.name}' is not a signature algorithm this implementation supports!`);
 
     }
+
+}
+
+
+/**
+ * The authentication tag of a MAC_structure.
+ *
+ * Deliberately *not* reachable through {@link signWith}: a MAC is not a
+ * signature with a shorter key, and an API that let one stand in for the other
+ * would let a caller believe a message was signed when it was merely
+ * authenticated between two parties who share a secret.
+ */
+export function macWith(value:      CoseAlgorithm,
+                        toBeMaced:  Uint8Array,
+                        key:        Uint8Array): Uint8Array {
+
+    if (value.family !== 'hmac')
+        throw new CoseError(`The COSE algorithm '${value.name}' is not a message authentication algorithm this implementation supports!`);
+
+    return macTag(hashOf(value), tagSizeOf(value), key, toBeMaced);
+
+}
+
+
+/** Whether an authentication tag is the right one, compared in constant time. */
+export function verifyMacWith(value:      CoseAlgorithm,
+                              toBeMaced:  Uint8Array,
+                              tag:        Uint8Array,
+                              key:        Uint8Array): boolean {
+
+    return tagsEqual(macWith(value, toBeMaced, key), tag);
+
+}
+
+
+function tagSizeOf(value: CoseAlgorithm): number {
+
+    if (value.tagSize === null)
+        throw new CoseError(`The COSE algorithm '${value.name}' does not define an authentication tag width!`);
+
+    return value.tagSize;
 
 }
 
