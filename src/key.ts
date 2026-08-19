@@ -37,7 +37,9 @@ import { decompressY, digest, isOnCurve,
 import type { DigestAlgorithm }               from './ecdsa.ts';
 import { eddsaPublicKeyFor }                  from './eddsa.ts';
 import { CoseError }                          from './errors.ts';
-import { MLDSA_SEED_SIZE, mldsaPublicKeyFor } from './mldsa.ts';
+import { MLDSA_SEED_SIZE, MLDSA_SIZES,
+         mldsaPublicKeyFor }                  from './mldsa.ts';
+import type { MldsaParameterSet }             from './mldsa.ts';
 
 
 /** Key type 7, a key pair belonging to an algorithm rather than a curve. */
@@ -263,6 +265,35 @@ export class CoseKey {
             ...empty(KEY_TYPE_AKP, { ...parts, algorithm }),
             pub:   mldsaPublicKeyFor(algorithm.parameterSet, seed),
             priv:  seed,
+        });
+
+    }
+
+
+    /**
+     * A public algorithm key pair, from the public key alone.
+     *
+     * This is the form a certificate hands over: a `SubjectPublicKeyInfo`
+     * carries the public key and names the parameter set in its algorithm
+     * identifier, and there is no seed to be had. The algorithm is required
+     * for the same reason as in {@link fromAkpSeed} — the bytes do not say
+     * which parameter set produced them, and the thumbprint covers `alg`.
+     */
+    public static fromAkpPublicKey(algorithm: CoseAlgorithm,
+                                   pub:       Uint8Array,
+                                   parts:     CoseKeyParts = {}): CoseKey {
+
+        if (algorithm.parameterSet === null)
+            throw new CoseError(`The COSE algorithm '${algorithm.name}' is not an algorithm key pair algorithm!`);
+
+        const expected = MLDSA_SIZES[algorithm.parameterSet as MldsaParameterSet].publicKey;
+
+        if (pub.length !== expected)
+            throw new CoseError(`The public key of an '${algorithm.name}' algorithm key pair must be ${String(expected)} bytes long, but was ${String(pub.length)} bytes long!`);
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_AKP, { ...parts, algorithm }),
+            pub,
         });
 
     }

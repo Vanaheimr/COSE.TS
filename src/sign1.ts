@@ -33,13 +33,16 @@ import { bytesEqual, cbor, decode, encode,
          NO_BYTES }                          from './cbor.ts';
 import type { CborValue }                    from './cbor.ts';
 import { CoseError, notVerified, VERIFIED }  from './errors.ts';
-import type { Verification }                 from './errors.ts';
+import type { NotVerified, Verification }    from './errors.ts';
 import { CoseHeaders,
          verifyCriticalHeaderParameters }    from './headers.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
 import { resolveAlgorithm, resolvePayload }  from './resolve.ts';
 import { CoseSignature }                     from './signature.ts';
+import { CoseCertificateChain,
+         CoseCertificateHash }               from './x5chain.ts';
+import type { X509Certificate }              from './x509.ts';
 
 
 /** The CBOR tag of a COSE_Sign1 message. */
@@ -95,6 +98,32 @@ export interface VerifyOptions {
     readonly alsoUnderstood?:     readonly CborValue[];
 
 }
+
+
+/** What a verifier working from a certificate chain may supply beyond that. */
+export interface CertificateChainVerifyOptions extends VerifyOptions {
+
+    /**
+     * The instant to check the certificates' validity periods at, now by
+     * default. Worth passing whenever the answer has to be reproducible: an
+     * archived message re-checked years later is checked against the
+     * certificates of its own time, not of today.
+     */
+    readonly at?:  Date;
+
+}
+
+
+/**
+ * The outcome of verifying against a certificate chain.
+ *
+ * A success names the certificate whose key verified, because "it verified" is
+ * only half of what the caller asked: the other half is *who*, and a chain
+ * exists precisely to answer that.
+ */
+export type CertificateChainVerification =
+    | { readonly verified: true; readonly signer: X509Certificate }
+    | NotVerified;
 
 
 export class CoseSign1 {
@@ -358,6 +387,119 @@ export class CoseSign1 {
                                                     payload.value,
                                                     options.externalAad ?? null),
                                this.signature);
+
+    }
+
+
+    // -------------------------------------------------- X.509 [RFC 9360]
+
+    /**
+     * The certificate chain of this message, from either header bucket.
+     *
+     * A chain that travels in a message is untrusted input, and reading one
+     * says nothing at all about it — {@link verifyWithCertificateChain} has to
+     * walk it to an anchor first. Throws when the parameter is present but is
+     * not a `COSE_X509`, rather than pretending there is none.
+     */
+    public get certificateChain(): CoseCertificateChain | null {
+
+        const value = this.protectedHeader.get(label(HeaderLabel.x5Chain)) ??
+                      this.unprotectedHeader.get(label(HeaderLabel.x5Chain));
+
+        if (value === null)
+            return null;
+
+        return CoseCertificateChain.fromCbor(value);
+
+    }
+
+
+    /**
+     * The certificate thumbprint of this message, from either header bucket.
+     *
+     * Throws when the parameter is present but is not a `COSE_CertHash`.
+     */
+    public get certificateThumbprint(): CoseCertificateHash | null {
+
+        const value = this.protectedHeader.get(label(HeaderLabel.x5T)) ??
+                      this.unprotectedHeader.get(label(HeaderLabel.x5T));
+
+        if (value === null)
+            return null;
+
+        return CoseCertificateHash.fromCbor(value);
+
+    }
+
+
+    /**
+     * Verify this message against a certificate chain rather than against a
+     * public key somebody handed over: the chain travels within the message,
+     * is walked to one of the given trust anchors, and the key of its
+     * end-entity certificate is then the key the signature has to verify with.
+     *
+     * That last step is what turns a chain into an answer. A chain that
+     * validates beautifully says nothing whatsoever about the message it
+     * arrived with unless the key it ends in is the key that signed, so the
+     * two are never checked apart from one another here.
+     *
+     * The X.509 header parameters become understood *by this call* rather than
+     * by the library, which is why a `crit` demanding `x5chain` is accepted
+     * here and refused by {@link verify}: whoever verifies with a bare public
+     * key has not looked at any certificate and must not claim otherwise.
+     */
+    public verifyWithCertificateChain(trustAnchors: readonly X509Certificate[],
+                                      options:      CertificateChainVerifyOptions = {}): CertificateChainVerification {
+
+        const understood = [...(options.alsoUnderstood ?? []),
+                            label(HeaderLabel.x5Chain),
+                            label(HeaderLabel.x5T)];
+
+        const critical = verifyCriticalHeaderParameters(this.protectedHeader,
+                                                        this.unprotectedHeader,
+                                                        understood);
+
+        if (!critical.verified)
+            return critical;
+
+        let chain:      CoseCertificateChain | null;
+        let thumbprint: CoseCertificateHash  | null;
+
+        try {
+            chain       = this.certificateChain;
+            thumbprint  = this.certificateThumbprint;
+        }
+        catch (exception) {
+            return notVerified(exception instanceof Error ? exception.message : String(exception));
+        }
+
+        if (chain === null)
+            return notVerified('This COSE_Sign1 message carries no certificate chain!');
+
+        if (thumbprint !== null) {
+
+            const names = thumbprint.matches(chain.endEntity);
+
+            if (!names.verified)
+                return names;
+
+        }
+
+        const validated = chain.validate(trustAnchors, { at: options.at });
+
+        if (!validated.verified)
+            return validated;
+
+        // Whether the certified key is one this algorithm can verify with is
+        // the algorithm's question and not this one's: an EdDSA or an ML-DSA
+        // certificate is as good a binding as an elliptic curve one.
+        const signed = this.verify(chain.publicKey(),
+                                   { ...options, alsoUnderstood: understood });
+
+        if (!signed.verified)
+            return signed;
+
+        return { verified: true, signer: chain.endEntity };
 
     }
 

@@ -18,16 +18,18 @@
  * What is implemented: `COSE_Sign1` (tag 18) including detached payloads,
  * external additional authenticated data and the `crit` header parameter;
  * `COSE_Sign` (tag 98) with several independent signers; the version 2
- * countersignatures of RFC 9338; COSE keys of key type EC2 with the key
- * thumbprints of RFC 9679; and the ECDSA algorithms of RFC 9053 and RFC 9864.
+ * countersignatures of RFC 9338; COSE keys of key type EC2, OKP and AKP with
+ * the key thumbprints of RFC 9679; the ECDSA algorithms of RFC 9053 and
+ * RFC 9864, EdDSA of RFC 8032 and ML-DSA of RFC 9964; and the X.509 chains of
+ * RFC 9360, parsed, walked to a trust anchor and bound to the key that signed.
  *
- * What is not: MAC, encryption, EdDSA, `COSE_Countersignature0`, and the X.509
- * header parameters of RFC 9360 beyond carrying them — a chain that travels is
- * read back unchanged, but nothing here validates one against a trust anchor.
+ * What is not: MAC, encryption, `COSE_Countersignature0`, and the `x5bag` and
+ * `x5u` header parameters — a bag is an unordered heap with no path to follow,
+ * and a URI is a fetch, which a signature library has no business performing.
  */
 
 export { CoseError, notVerified, VERIFIED }         from './errors.ts';
-export type { Verification }                        from './errors.ts';
+export type { NotVerified, Verification }           from './errors.ts';
 
 export { bytesEqual, cbor, DETERMINISTIC,
          NO_BYTES, PRESERVE }                       from './cbor.ts';
@@ -71,6 +73,23 @@ export { CoseSignature }                            from './signature.ts';
 
 export { COSE_SIGN1_TAG, COUNTERSIGNATURE_CONTEXT,
          CoseSign1, SIGNATURE_CONTEXT }             from './sign1.ts';
-export type { Sign1Options, VerifyOptions }         from './sign1.ts';
+export type { CertificateChainVerification,
+              CertificateChainVerifyOptions,
+              Sign1Options, VerifyOptions }         from './sign1.ts';
 
 export { COSE_SIGN_TAG, CoseSign }                  from './sign.ts';
+
+export { contentsOf, contextTag, derBitString,
+         derBitStringRaw, derBoolean, derInteger,
+         derObjectIdentifier, derString, derTime,
+         DerReader, Tag }                           from './asn1.ts';
+export type { Asn1Node }                            from './asn1.ts';
+
+export { curveByOid, KeyUsage, oidOfCurve,
+         signatureAlgorithmByOid, X509Certificate,
+         X509Name }                                 from './x509.ts';
+export type { BasicConstraints, NameAttribute }     from './x509.ts';
+
+export { CoseCertificateChain,
+         CoseCertificateHash }                      from './x5chain.ts';
+export type { ChainValidationOptions }              from './x5chain.ts';

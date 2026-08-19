@@ -68,6 +68,9 @@ import and `package.json` gains a dependency. Nothing else changes.
 - **The algorithm and curve registries**, including the fully-specified
   algorithms of [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864) and the
   brainpool curves registered by ISO/IEC 18013-5.
+- **X.509 certificate chains** ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360),
+  header parameters `x5chain` and `x5t`) — parsed, walked to a trust anchor,
+  and bound to the key that signed. See below.
 
 | Algorithm | Id | Curve | Digest |
 |-----------|---:|-------|--------|
@@ -112,11 +115,48 @@ checks that the order really is the order, and the conformance suite signs with
 them and compares the bytes against Bouncy Castle's own brainpoolP320r1. A
 single wrong digit survives none of the three.
 
-Not implemented: `COSE_Countersignature0`, MAC, encryption, and the
-X.509 header parameters of [RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)
-beyond carrying them — a chain that travels is read back unchanged, but nothing
-here validates one against a trust anchor. Styx does; this does not, and a
-`crit` that demands `x5chain` is consequently refused.
+### Certificate chains
+
+`CoseSign1.verifyWithCertificateChain(trustAnchors, { at })` verifies a message
+against the chain it carries rather than against a public key somebody handed
+over: the chain is walked to one of the given anchors, and the key of its
+end-entity certificate is then the key the signature has to verify with. The
+two are never answered apart from one another, because a chain that validates
+beautifully says nothing about the message it arrived with unless the key it
+ends in is the key that signed — and that is a failure no chain check alone
+catches.
+
+Checked: the validity periods (at an instant the caller may name, which an
+archived message needs), that each certificate was signed by the next, that
+every issuer is actually a certification authority allowed to sign
+certificates, that the chain ends at an anchor or at something an anchor
+issued, and that the end-entity certificate is allowed to create signatures at
+all. `x5t`, when present, must name the certificate that travelled.
+
+Not checked, and the same list as Styx so that the two agree about what a pass
+means: revocation, name constraints, certificate policies, and path length
+beyond the CA flag itself.
+
+The DER is read here rather than by a library, in
+[`src/asn1.ts`](src/asn1.ts) and [`src/x509.ts`](src/x509.ts), and the reason
+is the same one that made brainpoolP320r1 a local definition. A certificate
+chain has to be verifiable with every algorithm this package signs with — which
+includes the four brainpool curves and the three ML-DSA parameter sets — and
+the TypeScript X.509 libraries verify through WebCrypto, which supports
+neither. A meter certificate on brainpoolP256r1 is exactly the certificate they
+cannot check. Verification here goes through the same path as every other
+signature this package verifies, so whatever COSE can verify, a certificate can
+be signed with.
+
+The certificates the test suite reads are minted by Bouncy Castle rather than
+written here, which is not a convenience: a DER parser checked against
+certificates its own package produced would agree with itself about any
+misreading whatsoever.
+
+Not implemented: `COSE_Countersignature0`, MAC, encryption, and the `x5bag`
+and `x5u` header parameters — a bag is an unordered heap with no path to
+follow, and a URI is a fetch, which a signature library has no business
+performing.
 
 ## Signing and verifying
 
@@ -198,6 +238,12 @@ uses — same RFCs, same appendices, same transcription:
 - **RFC 8032 §7.1 and §7.4** — Ed25519 and Ed448, also reproduced exactly, and
   that is a stronger check than any ECDSA vector allows: EdDSA has no nonce to
   draw, so a published signature is not merely verifiable but *recomputable*.
+- **A certificate corpus minted by Bouncy Castle** — fifteen certificates and
+  the hierarchies they form, read back here field by field and walked to their
+  anchors at a fixed instant. They cover an ECDSA root signing a brainpool
+  authority, a chain signed with Ed25519 and one signed with ML-DSA-65, expired
+  and not-yet-valid certificates, an issuer that is not an authority, and a
+  chain that certifies the wrong key.
 - **The worked signed record of the specification** — 713 bytes produced by the
   C# implementation: the station's signature verifies *and is reproduced byte
   for byte*, both meter readings verify and are reproduced, the operator's

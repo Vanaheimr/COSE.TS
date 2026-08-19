@@ -44,6 +44,16 @@ export type Verification =
 export const VERIFIED: Verification = { verified: true };
 
 
+/**
+ * A verification that failed.
+ *
+ * Named because it is the half of {@link Verification} that carries a reason,
+ * and a function returning only this half lets a caller pass it straight on as
+ * its own failure without the type widening back to "or it succeeded".
+ */
+export type NotVerified = Extract<Verification, { verified: false }>;
+
+
 /** A failed verification, with the reason it failed. */
-export const notVerified = (reason: string): Verification =>
+export const notVerified = (reason: string): NotVerified =>
     ({ verified: false, reason });
