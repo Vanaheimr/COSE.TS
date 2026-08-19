@@ -14,7 +14,8 @@ import { describe, expect, it }              from 'vitest';
 
 import { ALL_ALGORITHMS, ALL_CURVES, cbor,
          CoseAlgorithms, CoseCurves, CoseError,
-         CoseKey, CoseSign1, isImplemented,
+         CoseKey, CoseSign1, isEddsaCurve,
+         isImplemented,
          KEY_TYPE_EC2, KEY_TYPE_OKP,
          KeyLabel }                          from '../src/index.ts';
 import { hex, KEY_11, KEY_BILBO, unhex }     from './vectors.ts';
@@ -215,18 +216,32 @@ describe('the curve registry', () => {
 
     });
 
-    it('refuses the OKP curves rather than pretending to sign with them', () => {
+    it('keeps the OKP curves out of the ECDSA module, where they do not belong', () => {
 
-        // X25519 and Ed448 are in the registry and are not ECDSA curves. The
-        // refusal names the curve, which is the honest failure; silently
-        // substituting one would not be.
+        // An OKP curve is not an ECDSA curve, so the ECDSA implementation
+        // knows none of them — the EdDSA one does.
         for (const curve of ALL_CURVES.filter(each => each.keyType === KEY_TYPE_OKP))
             expect(isImplemented(curve), curve.name).toBe(false);
 
-        expect(() => CoseKey.fromPrivateScalar(CoseCurves.Ed25519,
-                                               new Uint8Array(32).fill(1),
-                                               { algorithm: CoseAlgorithms.Ed25519 }))
-            .toThrow(/registered by COSE, but this build does not implement it/u);
+        expect(isEddsaCurve(CoseCurves.Ed25519)).toBe(true);
+        expect(isEddsaCurve(CoseCurves.Ed448)).toBe(true);
+
+    });
+
+    it('refuses the two key-agreement curves, which sign nothing', () => {
+
+        // X25519 and X448 are in the registry and are not signature curves at
+        // all. The refusal names the curve, which is the honest failure;
+        // silently substituting one would not be.
+        for (const curve of [CoseCurves.X25519, CoseCurves.X448]) {
+
+            expect(isImplemented(curve), curve.name).toBe(false);
+            expect(isEddsaCurve(curve),  curve.name).toBe(false);
+
+            expect(() => CoseKey.fromOkpPrivateKey(curve, new Uint8Array(32).fill(1)))
+                .toThrow(/not an EdDSA signature curve/u);
+
+        }
 
     });
 

@@ -31,10 +31,19 @@ export interface CoseCurve {
     /** The key type this curve belongs to: 2 = EC2, 1 = OKP. */
     readonly keyType:     number;
 
-    /** The width of one coordinate, in bytes, or null when not an EC2 curve. */
+    /**
+     * On an EC2 curve, the width of one coordinate. On an OKP curve, the width
+     * of the public key, which is the whole of `x` — there is no `y`.
+     */
     readonly fieldSize:   number | null;
 
-    /** The width of a private key and of each signature half, in bytes. */
+    /**
+     * On an EC2 curve, the width of a private key and of each half of a
+     * signature. On an OKP curve, the width of the private key.
+     *
+     * Ed448 is 57 bytes and not 56: RFC 8032 appends a sign bit to the 456-bit
+     * encoding, which costs a whole further octet.
+     */
     readonly orderSize:   number | null;
 
 }
@@ -58,10 +67,13 @@ export const CoseCurves = {
     P256:             curve(  1, 'P-256',           KEY_TYPE_EC2, 32,   32),
     P384:             curve(  2, 'P-384',           KEY_TYPE_EC2, 48,   48),
     P521:             curve(  3, 'P-521',           KEY_TYPE_EC2, 66,   66),
+    // The two key-agreement curves carry no signature algorithm, so their
+    // widths are recorded as unknown rather than guessed at.
     X25519:           curve(  4, 'X25519',          KEY_TYPE_OKP, null, null),
     X448:             curve(  5, 'X448',            KEY_TYPE_OKP, null, null),
-    Ed25519:          curve(  6, 'Ed25519',         KEY_TYPE_OKP, null, null),
-    Ed448:            curve(  7, 'Ed448',           KEY_TYPE_OKP, null, null),
+
+    Ed25519:          curve(  6, 'Ed25519',         KEY_TYPE_OKP, 32,   32),
+    Ed448:            curve(  7, 'Ed448',           KEY_TYPE_OKP, 57,   57),
     secp256k1:        curve(  8, 'secp256k1',       KEY_TYPE_EC2, 32,   32),
 
     // Registered by ISO/IEC 18013-5 for the mobile driving licence.

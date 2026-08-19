@@ -5,14 +5,23 @@
  */
 
 /**
- * A COSE key [RFC 9052, Section 7], of key type EC2.
+ * A COSE key: elliptic curve (EC2), octet key pair (OKP) or algorithm key
+ * pair (AKP) [RFC 9052 Section 7, RFC 9964].
  *
- * Coordinates and private keys are fixed-width byte strings whose **leading
- * zeroes must be preserved** [RFC 9053, Section 7.1.1]. A plain big-integer
- * serialization shortens them roughly one time in 256, and the resulting key
- * is rejected by other implementations — a bug that passes every test until
- * the day it does not. Every width is therefore checked on the way out of this
- * module, and every value is padded on the way in.
+ * **The labels are not the same for all three.** On an EC2 or OKP key, −1 is
+ * the curve and −2 is the x coordinate; on an AKP key, −1 is the public key
+ * and −2 is the private one. A parser that switches on the label alone reads
+ * an ML-DSA public key as a curve identifier and says nothing. Everything here
+ * therefore establishes the key type first and interprets the rest in its
+ * light.
+ *
+ * On EC2 and OKP keys, coordinates and private keys are fixed-width byte
+ * strings whose **leading zeroes must be preserved** [RFC 9053, Section
+ * 7.1.1]. A plain big-integer serialization shortens them roughly one time in
+ * 256, and the resulting key is rejected by other implementations — a bug that
+ * passes every test until the day it does not. Every width is therefore
+ * checked on the way out of this module, and every value is padded on the way
+ * in.
  */
 
 import { algorithmFromCbor, algorithmToCbor } from './algorithm.ts';
@@ -26,7 +35,13 @@ import type { CoseCurve }                     from './curve.ts';
 import { decompressY, digest, isOnCurve,
          publicKeyFor }                       from './ecdsa.ts';
 import type { DigestAlgorithm }               from './ecdsa.ts';
+import { eddsaPublicKeyFor }                  from './eddsa.ts';
 import { CoseError }                          from './errors.ts';
+import { MLDSA_SEED_SIZE, mldsaPublicKeyFor } from './mldsa.ts';
+
+
+/** Key type 7, a key pair belonging to an algorithm rather than a curve. */
+export const KEY_TYPE_AKP = 7;
 
 
 /**
@@ -39,10 +54,16 @@ export const KeyLabel = {
     keyIdentifier:  2,
     algorithm:      3,
     keyOperations:  4,
+
+    // EC2 and OKP.
     curve:         -1,
     x:             -2,
     y:             -3,
     d:             -4,
+
+    // AKP [RFC 9964] — note the collision with the two above.
+    pub:           -1,
+    priv:          -2,
 } as const;
 
 
@@ -80,6 +101,21 @@ export interface CoseKeyParts {
 }
 
 
+interface CoseKeyFields {
+    keyType:        number;
+    keyIdentifier:  Uint8Array | null;
+    algorithm:      CoseAlgorithm | null;
+    keyOperations:  CborValue | null;
+    curveId:        number | null;
+    x:              Uint8Array | null;
+    y:              Uint8Array | null;
+    d:              Uint8Array | null;
+    pub:            Uint8Array | null;
+    priv:           Uint8Array | null;
+    additional:     readonly CborEntry[];
+}
+
+
 export class CoseKey {
 
     public readonly keyType:        number;
@@ -90,25 +126,20 @@ export class CoseKey {
     /** The curve identifier as it travels, also when it is not registered. */
     public readonly curveId:        number | null;
 
+    /** EC2 and OKP: the coordinates and the private scalar. */
     public readonly x:              Uint8Array | null;
     public readonly y:              Uint8Array | null;
     public readonly d:              Uint8Array | null;
+
+    /** AKP: the public key, and the private key — which is always the seed. */
+    public readonly pub:            Uint8Array | null;
+    public readonly priv:           Uint8Array | null;
 
     /** Header parameters this implementation does not know, kept for the round trip. */
     public readonly additional:     readonly CborEntry[];
 
 
-    private constructor(fields: {
-        keyType:        number;
-        keyIdentifier:  Uint8Array | null;
-        algorithm:      CoseAlgorithm | null;
-        keyOperations:  CborValue | null;
-        curveId:        number | null;
-        x:              Uint8Array | null;
-        y:              Uint8Array | null;
-        d:              Uint8Array | null;
-        additional:     readonly CborEntry[];
-    }) {
+    private constructor(fields: CoseKeyFields) {
         this.keyType        = fields.keyType;
         this.keyIdentifier  = fields.keyIdentifier;
         this.algorithm      = fields.algorithm;
@@ -117,7 +148,30 @@ export class CoseKey {
         this.x              = fields.x;
         this.y              = fields.y;
         this.d              = fields.d;
+        this.pub            = fields.pub;
+        this.priv           = fields.priv;
         this.additional     = fields.additional;
+    }
+
+
+    private get fields(): CoseKeyFields {
+        return {
+            keyType:        this.keyType,
+            keyIdentifier:  this.keyIdentifier,
+            algorithm:      this.algorithm,
+            keyOperations:  this.keyOperations,
+            curveId:        this.curveId,
+            x:              this.x,
+            y:              this.y,
+            d:              this.d,
+            pub:            this.pub,
+            priv:           this.priv,
+            additional:     this.additional,
+        };
+    }
+
+    private copy(overrides: Partial<CoseKeyFields>): CoseKey {
+        return new CoseKey({ ...this.fields, ...overrides });
     }
 
 
@@ -128,12 +182,12 @@ export class CoseKey {
 
     /** Whether this key carries private key material. */
     public get isPrivate(): boolean {
-        return this.d !== null;
+        return this.d !== null || this.priv !== null;
     }
 
 
     /**
-     * A key pair from its private scalar.
+     * An elliptic curve key pair from its private scalar.
      *
      * The public point is recomputed rather than asked for, which is what the
      * examples of RFC 9052 do as well: a private COSE key always carries the
@@ -143,26 +197,92 @@ export class CoseKey {
                                     d:     Uint8Array,
                                     parts: CoseKeyParts = {}): CoseKey {
 
+        if (curve.keyType === KEY_TYPE_OKP)
+            return CoseKey.fromOkpPrivateKey(curve, d, parts);
+
         const scalar       = padded(d, curve.orderSize ?? d.length, 'private key');
         const uncompressed = publicKeyFor(curve, scalar);
         const fieldSize    = curve.fieldSize ?? 0;
 
         return new CoseKey({
-            keyType:        curve.keyType,
-            keyIdentifier:  parts.keyIdentifier ?? null,
-            algorithm:      parts.algorithm     ?? null,
-            keyOperations:  null,
-            curveId:        curve.id,
-            x:              uncompressed.slice(1, 1 + fieldSize),
-            y:              uncompressed.slice(1 + fieldSize),
-            d:              scalar,
-            additional:     [],
+            ...empty(curve.keyType, parts),
+            curveId:  curve.id,
+            x:        uncompressed.slice(1, 1 + fieldSize),
+            y:        uncompressed.slice(1 + fieldSize),
+            d:        scalar,
         });
 
     }
 
 
-    /** A public key from its coordinates. */
+    /**
+     * An octet key pair from its private key.
+     *
+     * There is no `y`: an EdDSA public key is the whole of `x`.
+     */
+    public static fromOkpPrivateKey(curve: CoseCurve,
+                                    d:     Uint8Array,
+                                    parts: CoseKeyParts = {}): CoseKey {
+
+        const width = curve.orderSize ?? d.length;
+
+        if (d.length !== width)
+            throw new CoseError(`The private key of a COSE key on the curve '${curve.name}' must be ${String(width)} bytes long, but was ${String(d.length)} bytes long!`);
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_OKP, parts),
+            curveId:  curve.id,
+            x:        eddsaPublicKeyFor(curve, d),
+            d,
+        });
+
+    }
+
+
+    /**
+     * An algorithm key pair from its seed.
+     *
+     * The private key of an ML-DSA COSE key is the 32-byte seed and nothing
+     * else [RFC 9964] — not the expanded secret key, which is up to 4896 bytes
+     * and derivable from it. The algorithm is not optional here: an ML-DSA
+     * public key does not say which parameter set produced it, so a key that
+     * did not name one could not be used, and could not even be identified,
+     * since its thumbprint covers the algorithm.
+     */
+    public static fromAkpSeed(algorithm: CoseAlgorithm,
+                              seed:      Uint8Array,
+                              parts:     CoseKeyParts = {}): CoseKey {
+
+        if (algorithm.parameterSet === null)
+            throw new CoseError(`The COSE algorithm '${algorithm.name}' is not an algorithm key pair algorithm!`);
+
+        if (seed.length !== MLDSA_SEED_SIZE)
+            throw new CoseError(`The private key of an algorithm key pair is the seed and must be ${String(MLDSA_SEED_SIZE)} bytes long [RFC 9964], but was ${String(seed.length)} bytes long!`);
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_AKP, { ...parts, algorithm }),
+            pub:   mldsaPublicKeyFor(algorithm.parameterSet, seed),
+            priv:  seed,
+        });
+
+    }
+
+
+    /** A public octet key pair, which is the whole of `x` and nothing else. */
+    public static fromOkpPublicKey(curve: CoseCurve,
+                                   x:     Uint8Array,
+                                   parts: CoseKeyParts = {}): CoseKey {
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_OKP, parts),
+            curveId:  curve.id,
+            x,
+        });
+
+    }
+
+
+    /** A public elliptic curve key from its coordinates. */
     public static fromCoordinates(curve: CoseCurve,
                                   x:     Uint8Array,
                                   y:     Uint8Array,
@@ -171,15 +291,10 @@ export class CoseKey {
         const width = curve.fieldSize ?? x.length;
 
         return new CoseKey({
-            keyType:        curve.keyType,
-            keyIdentifier:  parts.keyIdentifier ?? null,
-            algorithm:      parts.algorithm     ?? null,
-            keyOperations:  null,
-            curveId:        curve.id,
-            x:              padded(x, width, 'x coordinate'),
-            y:              padded(y, width, 'y coordinate'),
-            d:              null,
-            additional:     [],
+            ...empty(curve.keyType, parts),
+            curveId:  curve.id,
+            x:        padded(x, width, 'x coordinate'),
+            y:        padded(y, width, 'y coordinate'),
         });
 
     }
@@ -204,7 +319,40 @@ export class CoseKey {
         if (value.type !== 'map')
             throw new CoseError(`A COSE key must be a CBOR map, but was a CBOR ${value.type}!`);
 
-        let keyType:       number | null        = null;
+        // First the key type, because it decides what −1 and −2 mean. Reading
+        // it in a pass of its own rather than relying on it arriving first
+        // costs one loop and survives a map in any order.
+        const keyType = CoseKey.readKeyType(value.entries);
+
+        return keyType === KEY_TYPE_AKP
+                   ? CoseKey.parseAkp(value.entries, keyType)
+                   : CoseKey.parseCurveKey(value.entries, keyType);
+
+    }
+
+
+    private static readKeyType(entries: readonly CborEntry[]): number {
+
+        for (const [key, item] of entries) {
+
+            if (key.type === 'int' && Number(key.value) === KeyLabel.keyType) {
+
+                if (item.type !== 'int')
+                    throw new CoseError('The key type of a COSE key must be an integer!');
+
+                return Number(item.value);
+
+            }
+
+        }
+
+        throw new CoseError('A COSE key must have a key type!');
+
+    }
+
+
+    private static parseCurveKey(entries: readonly CborEntry[], keyType: number): CoseKey {
+
         let keyIdentifier: Uint8Array | null    = null;
         let algorithm:     CoseAlgorithm | null = null;
         let keyOperations: CborValue | null     = null;
@@ -215,7 +363,7 @@ export class CoseKey {
 
         const additional: CborEntry[] = [];
 
-        for (const [key, item] of value.entries) {
+        for (const [key, item] of entries) {
 
             if (key.type !== 'int') {
                 additional.push([key, item]);
@@ -225,15 +373,10 @@ export class CoseKey {
             switch (Number(key.value)) {
 
                 case KeyLabel.keyType:
-                    if (item.type !== 'int')
-                        throw new CoseError('The key type of a COSE key must be an integer!');
-                    keyType = Number(item.value);
                     break;
 
                 case KeyLabel.keyIdentifier:
-                    if (item.type !== 'bytes')
-                        throw new CoseError('The key identifier of a COSE key must be a byte string!');
-                    keyIdentifier = item.value;
+                    keyIdentifier = bytesOf(item, 'The key identifier of a COSE key');
                     break;
 
                 case KeyLabel.algorithm:
@@ -253,9 +396,7 @@ export class CoseKey {
                     break;
 
                 case KeyLabel.x:
-                    if (item.type !== 'bytes')
-                        throw new CoseError('The x coordinate of a COSE key must be a byte string!');
-                    x = item.value;
+                    x = bytesOf(item, 'The x coordinate of a COSE key');
                     break;
 
                 case KeyLabel.y:
@@ -263,9 +404,7 @@ export class CoseKey {
                     break;
 
                 case KeyLabel.d:
-                    if (item.type !== 'bytes')
-                        throw new CoseError('The private key of a COSE key must be a byte string!');
-                    d = item.value;
+                    d = bytesOf(item, 'The private key of a COSE key');
                     break;
 
                 default:
@@ -275,9 +414,6 @@ export class CoseKey {
 
         }
 
-        if (keyType === null)
-            throw new CoseError('A COSE key must have a key type!');
-
         return new CoseKey({
             keyType,
             keyIdentifier,
@@ -285,8 +421,78 @@ export class CoseKey {
             keyOperations,
             curveId,
             x,
-            y:  CoseKey.resolveY(yValue, x, curveId),
+            y:     CoseKey.resolveY(yValue, x, curveId),
             d,
+            pub:   null,
+            priv:  null,
+            additional,
+        });
+
+    }
+
+
+    private static parseAkp(entries: readonly CborEntry[], keyType: number): CoseKey {
+
+        let keyIdentifier: Uint8Array | null    = null;
+        let algorithm:     CoseAlgorithm | null = null;
+        let keyOperations: CborValue | null     = null;
+        let pub:           Uint8Array | null    = null;
+        let priv:          Uint8Array | null    = null;
+
+        const additional: CborEntry[] = [];
+
+        for (const [key, item] of entries) {
+
+            if (key.type !== 'int') {
+                additional.push([key, item]);
+                continue;
+            }
+
+            switch (Number(key.value)) {
+
+                case KeyLabel.keyType:
+                    break;
+
+                case KeyLabel.keyIdentifier:
+                    keyIdentifier = bytesOf(item, 'The key identifier of a COSE key');
+                    break;
+
+                case KeyLabel.algorithm:
+                    algorithm = algorithmFromCbor(item);
+                    break;
+
+                case KeyLabel.keyOperations:
+                    if (item.type !== 'array')
+                        throw new CoseError('The key operations of a COSE key must be an array!');
+                    keyOperations = item;
+                    break;
+
+                case KeyLabel.pub:
+                    pub = bytesOf(item, 'The public key of an algorithm key pair');
+                    break;
+
+                case KeyLabel.priv:
+                    priv = bytesOf(item, 'The private key of an algorithm key pair');
+                    break;
+
+                default:
+                    additional.push([key, item]);
+
+            }
+
+        }
+
+        return new CoseKey({
+            keyType,
+            keyIdentifier,
+            algorithm,
+            keyOperations,
+            curveId:  null,
+            x:        null,
+            y:        null,
+            d:        null,
+            pub,
+            priv,
             additional,
         });
 
@@ -352,17 +558,31 @@ export class CoseKey {
         if (this.keyOperations !== null)
             entries.push([cbor.int(KeyLabel.keyOperations), this.keyOperations]);
 
-        if (this.curveId !== null)
-            entries.push([cbor.int(KeyLabel.curve), cbor.int(this.curveId)]);
+        if (this.keyType === KEY_TYPE_AKP) {
 
-        if (this.x !== null)
-            entries.push([cbor.int(KeyLabel.x), cbor.bytes(this.x)]);
+            if (this.pub !== null)
+                entries.push([cbor.int(KeyLabel.pub), cbor.bytes(this.pub)]);
 
-        if (this.y !== null)
-            entries.push([cbor.int(KeyLabel.y), cbor.bytes(this.y)]);
+            if (this.priv !== null)
+                entries.push([cbor.int(KeyLabel.priv), cbor.bytes(this.priv)]);
 
-        if (this.d !== null)
-            entries.push([cbor.int(KeyLabel.d), cbor.bytes(this.d)]);
+        }
+
+        else {
+
+            if (this.curveId !== null)
+                entries.push([cbor.int(KeyLabel.curve), cbor.int(this.curveId)]);
+
+            if (this.x !== null)
+                entries.push([cbor.int(KeyLabel.x), cbor.bytes(this.x)]);
+
+            if (this.y !== null)
+                entries.push([cbor.int(KeyLabel.y), cbor.bytes(this.y)]);
+
+            if (this.d !== null)
+                entries.push([cbor.int(KeyLabel.d), cbor.bytes(this.d)]);
+
+        }
 
         entries.push(...this.additional);
 
@@ -379,44 +599,20 @@ export class CoseKey {
 
     /** This key without its private half. */
     public publicKey(): CoseKey {
-
-        return new CoseKey({
-            keyType:        this.keyType,
-            keyIdentifier:  this.keyIdentifier,
-            algorithm:      this.algorithm,
-            keyOperations:  this.keyOperations,
-            curveId:        this.curveId,
-            x:              this.x,
-            y:              this.y,
-            d:              null,
-            additional:     this.additional,
-        });
-
+        return this.copy({ d: null, priv: null });
     }
 
 
     /** A copy of this key carrying the given algorithm. */
     public withAlgorithm(algorithm: CoseAlgorithm): CoseKey {
-
-        return new CoseKey({
-            keyType:        this.keyType,
-            keyIdentifier:  this.keyIdentifier,
-            algorithm,
-            keyOperations:  this.keyOperations,
-            curveId:        this.curveId,
-            x:              this.x,
-            y:              this.y,
-            d:              this.d,
-            additional:     this.additional,
-        });
-
+        return this.copy({ algorithm });
     }
 
 
-    private requireEc2Curve(): CoseCurve {
+    private requireCurve(): CoseCurve {
 
-        if (this.keyType !== KEY_TYPE_EC2)
-            throw new CoseError(`Only COSE keys of key type EC2 are supported, but this one is of key type ${String(this.keyType)}!`);
+        if (this.keyType !== KEY_TYPE_EC2 && this.keyType !== KEY_TYPE_OKP)
+            throw new CoseError(`A COSE key of key type ${String(this.keyType)} has no elliptic curve!`);
 
         const curve = this.curve;
 
@@ -431,15 +627,36 @@ export class CoseKey {
 
 
     /**
-     * The public point as `04 ‖ x ‖ y`, with both widths and the curve
-     * membership checked.
+     * The public key, in whatever form its key type gives it: `04 ‖ x ‖ y` for
+     * EC2, the whole of `x` for OKP, `pub` for AKP.
      */
     public publicKeyBytes(): Uint8Array {
 
-        const curve     = this.requireEc2Curve();
+        if (this.keyType === KEY_TYPE_AKP) {
+
+            if (this.pub === null)
+                throw new CoseError('This COSE key carries no public key!');
+
+            return this.pub;
+
+        }
+
+        const curve     = this.requireCurve();
         const fieldSize = curve.fieldSize ?? 0;
 
-        if (this.x === null || this.y === null)
+        if (this.x === null)
+            throw new CoseError(`A COSE key on the curve '${curve.name}' needs its public key!`);
+
+        if (this.keyType === KEY_TYPE_OKP) {
+
+            if (this.x.length !== fieldSize)
+                throw new CoseError(`The public key of a COSE key on the curve '${curve.name}' must be ${String(fieldSize)} bytes long, but was ${String(this.x.length)} bytes long!`);
+
+            return this.x;
+
+        }
+
+        if (this.y === null)
             throw new CoseError(`A COSE key on the curve '${curve.name}' needs both of its coordinates!`);
 
         if (this.x.length !== fieldSize || this.y.length !== fieldSize)
@@ -459,10 +676,22 @@ export class CoseKey {
     }
 
 
-    /** The private scalar, with its width checked. */
+    /** The private key: the scalar for EC2 and OKP, the seed for AKP. */
     public privateKeyBytes(): Uint8Array {
 
-        const curve     = this.requireEc2Curve();
+        if (this.keyType === KEY_TYPE_AKP) {
+
+            if (this.priv === null)
+                throw new CoseError('This COSE key carries no private key material!');
+
+            if (this.priv.length !== MLDSA_SEED_SIZE)
+                throw new CoseError(`The private key of an algorithm key pair is the seed and must be ${String(MLDSA_SEED_SIZE)} bytes long [RFC 9964], but was ${String(this.priv.length)} bytes long!`);
+
+            return this.priv;
+
+        }
+
+        const curve     = this.requireCurve();
         const orderSize = curve.orderSize ?? 0;
 
         if (this.d === null)
@@ -471,7 +700,7 @@ export class CoseKey {
         if (this.d.length !== orderSize)
             throw new CoseError(`The private key of a COSE key on the curve '${curve.name}' must be ${String(orderSize)} bytes wide, including leading zeroes, but was ${String(this.d.length)} bytes wide!`);
 
-        if (this.d.every(each => each === 0))
+        if (this.keyType === KEY_TYPE_EC2 && this.d.every(each => each === 0))
             throw new CoseError(`The private key of this COSE key is not within the group order of the curve '${curve.name}'!`);
 
         return this.d;
@@ -487,6 +716,11 @@ export class CoseKey {
      * identity rather than a checksum — the public and the private half of one
      * key pair produce the same value, and adding a key identifier does not
      * change it.
+     *
+     * An AKP key is the exception that proves the rule: its algorithm *is*
+     * required [RFC 9964], because an ML-DSA public key does not say which
+     * parameter set produced it, and two keys of different strengths must not
+     * be able to share an identity.
      */
     public thumbprintInput(): Uint8Array {
 
@@ -517,6 +751,19 @@ export class CoseKey {
 
         }
 
+        if (this.keyType === KEY_TYPE_AKP) {
+
+            if (this.algorithm === null || this.pub === null)
+                throw new CoseError('The thumbprint of a COSE key of key type AKP needs its algorithm and its public key!');
+
+            return cbor.encode(cbor.map([
+                [cbor.int(KeyLabel.keyType),   cbor.int(this.keyType)],
+                [cbor.int(KeyLabel.algorithm), algorithmToCbor(this.algorithm)],
+                [cbor.int(KeyLabel.pub),       cbor.bytes(this.pub)],
+            ]), DETERMINISTIC);
+
+        }
+
         throw new CoseError(`The thumbprint of a COSE key of key type ${String(this.keyType)} is not implemented!`);
 
     }
@@ -534,9 +781,10 @@ export class CoseKey {
      * Two properties make this worth preferring over a self-chosen prefix.
      * Everyone holding the public key can recompute it, so no registry is
      * needed beyond an agreement on its length. And because the thumbprint
-     * covers the curve, a signer who changes algorithm necessarily has a
-     * different key and therefore a different identifier — an algorithm
-     * downgrade under an unchanged identity is not expressible.
+     * covers the curve — or, for an algorithm key pair, the algorithm — a
+     * signer who changes strength necessarily has a different key and
+     * therefore a different identifier: a downgrade under an unchanged
+     * identity is not expressible.
      */
     public thumbprintKeyIdentifier(length: number             = 8,
                                    hash:   DigestAlgorithm    = 'sha256'): Uint8Array {
@@ -554,21 +802,35 @@ export class CoseKey {
     /** A copy of this key whose key identifier is its own thumbprint. */
     public withThumbprintKeyIdentifier(length: number          = 8,
                                        hash:   DigestAlgorithm = 'sha256'): CoseKey {
-
-        const identifier = this.thumbprintKeyIdentifier(length, hash);
-
-        return new CoseKey({
-            keyType:        this.keyType,
-            keyIdentifier:  identifier,
-            algorithm:      this.algorithm,
-            keyOperations:  this.keyOperations,
-            curveId:        this.curveId,
-            x:              this.x,
-            y:              this.y,
-            d:              this.d,
-            additional:     this.additional,
-        });
-
+        return this.copy({ keyIdentifier: this.thumbprintKeyIdentifier(length, hash) });
     }
+
+}
+
+
+/** The fields every key starts from, before its key type fills any in. */
+function empty(keyType: number, parts: CoseKeyParts): CoseKeyFields {
+    return {
+        keyType,
+        keyIdentifier:  parts.keyIdentifier ?? null,
+        algorithm:      parts.algorithm     ?? null,
+        keyOperations:  null,
+        curveId:        null,
+        x:              null,
+        y:              null,
+        d:              null,
+        pub:            null,
+        priv:           null,
+        additional:     [],
+    };
+}
+
+
+function bytesOf(value: CborValue, what: string): Uint8Array {
+
+    if (value.type !== 'bytes')
+        throw new CoseError(`${what} must be a byte string!`);
+
+    return value.value;
 
 }

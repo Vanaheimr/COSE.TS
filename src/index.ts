@@ -45,16 +45,26 @@ export { ALL_ALGORITHMS, algorithmById,
          algorithmToCbor, CoseAlgorithms,
          resolveCurve, sameAlgorithm,
          signWith, verifyWith }                     from './algorithm.ts';
-export type { CoseAlgorithm }                       from './algorithm.ts';
+export type { AlgorithmFamily, CoseAlgorithm }      from './algorithm.ts';
 
 export { decompressY, digest, isImplemented,
          isOnCurve, publicKeyFor }                  from './ecdsa.ts';
 export type { DigestAlgorithm }                     from './ecdsa.ts';
 
+export { eddsaPublicKeyFor, eddsaSign,
+         eddsaSignatureSize, eddsaVerify,
+         isEddsaCurve }                             from './eddsa.ts';
+
+export { isMldsaParameterSet, MLDSA_PARAMETER_SETS,
+         MLDSA_SEED_SIZE, MLDSA_SIZES,
+         mldsaPublicKeyFor, mldsaSign,
+         mldsaVerify }                              from './mldsa.ts';
+export type { MldsaParameterSet }                   from './mldsa.ts';
+
 export { CoseHeaders,
          verifyCriticalHeaderParameters }           from './headers.ts';
 
-export { CoseKey, KeyLabel }                        from './key.ts';
+export { CoseKey, KEY_TYPE_AKP, KeyLabel }          from './key.ts';
 export type { CoseKeyParts }                        from './key.ts';
 
 export { CoseSignature }                            from './signature.ts';

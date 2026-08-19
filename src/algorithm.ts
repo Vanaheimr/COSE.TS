@@ -25,6 +25,21 @@ import { CoseCurves }                    from './curve.ts';
 import type { CoseCurve }                from './curve.ts';
 import { digest, sign, verify }          from './ecdsa.ts';
 import type { DigestAlgorithm }          from './ecdsa.ts';
+import { eddsaSign, eddsaVerify }        from './eddsa.ts';
+import { mldsaSign, mldsaVerify }        from './mldsa.ts';
+
+
+/**
+ * Which machinery an algorithm needs.
+ *
+ * The distinction that earns its place here is `ecdsa` against the other two:
+ * ECDSA signs a *digest* of the message, chosen by the algorithm, while EdDSA
+ * and ML-DSA are pure and take the message itself. Handing a pure signer a
+ * digest produces a signature that is valid for the digest and that nobody
+ * else will ever accept — a failure with no symptom until the day two
+ * implementations meet.
+ */
+export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'none';
 
 
 /** An algorithm in the COSE registry. */
@@ -39,11 +54,17 @@ export interface CoseAlgorithm {
     /** The registered description. */
     readonly description:  string;
 
-    /** The message digest, or null for an algorithm that defines none. */
+    /** Which signature machinery this needs. */
+    readonly family:       AlgorithmFamily;
+
+    /** The message digest, or null for a pure scheme that defines none. */
     readonly hash:         DigestAlgorithm | null;
 
     /** The curve this algorithm is defined on, or null when it leaves it to the key. */
     readonly curve:        CoseCurve | null;
+
+    /** The ML-DSA parameter set, or null for everything else. */
+    readonly parameterSet: string | null;
 
     /** Whether this implementation can sign and verify with it. */
     readonly signing:      boolean;
@@ -55,10 +76,12 @@ export interface CoseAlgorithm {
 
 
 interface AlgorithmSpec {
-    readonly hash?:        DigestAlgorithm;
-    readonly curve?:       CoseCurve;
-    readonly signing?:     boolean;
-    readonly deprecated?:  boolean;
+    readonly family?:        AlgorithmFamily;
+    readonly hash?:          DigestAlgorithm;
+    readonly curve?:         CoseCurve;
+    readonly parameterSet?:  string;
+    readonly signing?:       boolean;
+    readonly deprecated?:    boolean;
 }
 
 const algorithm = (id: number, name: string, description: string,
@@ -66,10 +89,12 @@ const algorithm = (id: number, name: string, description: string,
     id,
     name,
     description,
-    hash:        spec.hash       ?? null,
-    curve:       spec.curve      ?? null,
-    signing:     spec.signing    ?? false,
-    deprecated:  spec.deprecated ?? false,
+    family:        spec.family       ?? 'none',
+    hash:          spec.hash         ?? null,
+    curve:         spec.curve        ?? null,
+    parameterSet:  spec.parameterSet ?? null,
+    signing:       spec.signing      ?? false,
+    deprecated:    spec.deprecated   ?? false,
 });
 
 
@@ -78,40 +103,51 @@ export const CoseAlgorithms = {
 
     // ECDSA, curve taken from the key [RFC 9053]. Deprecated by RFC 9864.
     ES256:   algorithm(  -7, 'ES256',   'ECDSA w/ SHA-256',
-                       { hash: 'sha256', signing: true, deprecated: true }),
+                       { family: 'ecdsa', hash: 'sha256', signing: true, deprecated: true }),
     ES384:   algorithm( -35, 'ES384',   'ECDSA w/ SHA-384',
-                       { hash: 'sha384', signing: true, deprecated: true }),
+                       { family: 'ecdsa', hash: 'sha384', signing: true, deprecated: true }),
     ES512:   algorithm( -36, 'ES512',   'ECDSA w/ SHA-512',
-                       { hash: 'sha512', signing: true, deprecated: true }),
+                       { family: 'ecdsa', hash: 'sha512', signing: true, deprecated: true }),
 
     ES256K:  algorithm( -47, 'ES256K',  'ECDSA using secp256k1 curve and SHA-256',
-                       { hash: 'sha256', curve: CoseCurves.secp256k1, signing: true }),
+                       { family: 'ecdsa', hash: 'sha256', curve: CoseCurves.secp256k1, signing: true }),
 
     // Fully-specified ECDSA [RFC 9864].
     ESP256:  algorithm(  -9, 'ESP256',  'ECDSA using P-256 curve and SHA-256',
-                       { hash: 'sha256', curve: CoseCurves.P256, signing: true }),
+                       { family: 'ecdsa', hash: 'sha256', curve: CoseCurves.P256, signing: true }),
     ESP384:  algorithm( -51, 'ESP384',  'ECDSA using P-384 curve and SHA-384',
-                       { hash: 'sha384', curve: CoseCurves.P384, signing: true }),
+                       { family: 'ecdsa', hash: 'sha384', curve: CoseCurves.P384, signing: true }),
     ESP512:  algorithm( -52, 'ESP512',  'ECDSA using P-521 curve and SHA-512',
-                       { hash: 'sha512', curve: CoseCurves.P521, signing: true }),
+                       { family: 'ecdsa', hash: 'sha512', curve: CoseCurves.P521, signing: true }),
 
     ESB256:  algorithm(-265, 'ESB256',  'ECDSA using BrainpoolP256r1 curve and SHA-256',
-                       { hash: 'sha256', curve: CoseCurves.brainpoolP256r1, signing: true }),
+                       { family: 'ecdsa', hash: 'sha256', curve: CoseCurves.brainpoolP256r1, signing: true }),
     ESB320:  algorithm(-266, 'ESB320',  'ECDSA using BrainpoolP320r1 curve and SHA-384',
-                       { hash: 'sha384', curve: CoseCurves.brainpoolP320r1, signing: true }),
+                       { family: 'ecdsa', hash: 'sha384', curve: CoseCurves.brainpoolP320r1, signing: true }),
     ESB384:  algorithm(-267, 'ESB384',  'ECDSA using BrainpoolP384r1 curve and SHA-384',
-                       { hash: 'sha384', curve: CoseCurves.brainpoolP384r1, signing: true }),
+                       { family: 'ecdsa', hash: 'sha384', curve: CoseCurves.brainpoolP384r1, signing: true }),
     ESB512:  algorithm(-268, 'ESB512',  'ECDSA using BrainpoolP512r1 curve and SHA-512',
-                       { hash: 'sha512', curve: CoseCurves.brainpoolP512r1, signing: true }),
+                       { family: 'ecdsa', hash: 'sha512', curve: CoseCurves.brainpoolP512r1, signing: true }),
 
-    // Recognized so that they are refused by name rather than as an unknown
-    // number. EdDSA is not implemented here.
+    // EdDSA [RFC 8032]. No digest of its own: the message is signed whole.
+    // The un-suffixed identifier leaves the curve to the key, which is what
+    // RFC 9864 deprecates it for.
     EdDSA:   algorithm(  -8, 'EdDSA',   'EdDSA',
-                       { deprecated: true }),
+                       { family: 'eddsa', signing: true, deprecated: true }),
     Ed25519: algorithm( -19, 'Ed25519', 'EdDSA using the Ed25519 parameter set',
-                       { curve: CoseCurves.Ed25519 }),
+                       { family: 'eddsa', curve: CoseCurves.Ed25519, signing: true }),
     Ed448:   algorithm( -53, 'Ed448',   'EdDSA using the Ed448 parameter set',
-                       { curve: CoseCurves.Ed448 }),
+                       { family: 'eddsa', curve: CoseCurves.Ed448, signing: true }),
+
+    // ML-DSA [FIPS 204, RFC 9964]. Also pure, and also without a curve: an
+    // ML-DSA key is a key pair of an algorithm rather than a point on
+    // something, which is why RFC 9964 gives it a key type of its own.
+    MLDSA44: algorithm( -48, 'ML-DSA-44', 'CBOR Object Signing Algorithm for ML-DSA-44',
+                       { family: 'mldsa', parameterSet: 'ML-DSA-44', signing: true }),
+    MLDSA65: algorithm( -49, 'ML-DSA-65', 'CBOR Object Signing Algorithm for ML-DSA-65',
+                       { family: 'mldsa', parameterSet: 'ML-DSA-65', signing: true }),
+    MLDSA87: algorithm( -50, 'ML-DSA-87', 'CBOR Object Signing Algorithm for ML-DSA-87',
+                       { family: 'mldsa', parameterSet: 'ML-DSA-87', signing: true }),
 
     // Digests, which are algorithms in the same registry but never sign.
     SHA256:  algorithm( -16, 'SHA-256', 'SHA-2 256-bit Hash', { hash: 'sha256' }),
@@ -209,15 +245,46 @@ function hashOf(value: CoseAlgorithm): DigestAlgorithm {
 }
 
 
-/** Sign the Sig_structure of a message with the given algorithm. */
+function parameterSetOf(value: CoseAlgorithm): string {
+
+    if (value.parameterSet === null)
+        throw new CoseError(`The COSE algorithm '${value.name}' does not name an ML-DSA parameter set!`);
+
+    return value.parameterSet;
+
+}
+
+
+/**
+ * Sign the Sig_structure of a message with the given algorithm.
+ *
+ * Note which of the three branches hashes and which do not. ECDSA signs a
+ * digest of the Sig_structure; EdDSA and ML-DSA sign the Sig_structure itself.
+ * Getting that backwards yields a signature that verifies against nothing but
+ * an implementation making the same mistake.
+ */
 export function signWith(value:       CoseAlgorithm,
                          keyCurve:    CoseCurve | null,
                          toBeSigned:  Uint8Array,
                          privateKey:  Uint8Array): Uint8Array {
 
-    const curve = resolveCurve(value, keyCurve);
+    switch (value.family) {
 
-    return sign(curve, digest(hashOf(value), toBeSigned), privateKey);
+        case 'ecdsa':
+            return sign(resolveCurve(value, keyCurve),
+                        digest(hashOf(value), toBeSigned),
+                        privateKey);
+
+        case 'eddsa':
+            return eddsaSign(resolveCurve(value, keyCurve), toBeSigned, privateKey);
+
+        case 'mldsa':
+            return mldsaSign(parameterSetOf(value), toBeSigned, privateKey);
+
+        default:
+            throw new CoseError(`The COSE algorithm '${value.name}' is not a signature algorithm this implementation supports!`);
+
+    }
 
 }
 
@@ -229,8 +296,23 @@ export function verifyWith(value:       CoseAlgorithm,
                            signature:   Uint8Array,
                            publicKey:   Uint8Array): boolean {
 
-    const curve = resolveCurve(value, keyCurve);
+    switch (value.family) {
 
-    return verify(curve, signature, digest(hashOf(value), toBeSigned), publicKey);
+        case 'ecdsa':
+            return verify(resolveCurve(value, keyCurve),
+                          signature,
+                          digest(hashOf(value), toBeSigned),
+                          publicKey);
+
+        case 'eddsa':
+            return eddsaVerify(resolveCurve(value, keyCurve), signature, toBeSigned, publicKey);
+
+        case 'mldsa':
+            return mldsaVerify(parameterSetOf(value), signature, toBeSigned, publicKey);
+
+        default:
+            throw new CoseError(`The COSE algorithm '${value.name}' is not a signature algorithm this implementation supports!`);
+
+    }
 
 }
