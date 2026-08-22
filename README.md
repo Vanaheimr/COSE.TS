@@ -400,7 +400,8 @@ that receiver forwards a signature that no longer verifies, having altered
 nothing, and the failure looks exactly like tampering. A payload that is not
 CBOR is signed as it is; a *detached* payload that canonicalizing would change
 is refused, because the message does not carry it and the verifier would be
-handed the caller's own bytes.
+handed the caller's own bytes. `CoseMac0` and `CoseMac` do the same, for the
+same reason: an authentication tag covers bytes exactly as a signature does.
 
 Whenever the signing key does not live in this process, `toBeSigned()` hands
 out exactly the byte string that has to be signed.

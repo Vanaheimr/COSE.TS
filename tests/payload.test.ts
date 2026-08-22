@@ -31,7 +31,7 @@ import { describe, expect, it }              from 'vitest';
 
 import { canonicalizePayload, cbor,
          CoseAlgorithms, CoseCurves, CoseKey,
-         CoseSign1, isCanonicalPayload,
+         CoseMac0, CoseSign1, isCanonicalPayload,
          PRESERVE }                          from '../src/index.ts';
 
 
@@ -113,6 +113,49 @@ describe('a payload that is not CBOR', () => {
 
         expect(signed.payload).toEqual(text);
         expect(signed.verify(key.publicKey()).verified).toBe(true);
+
+    });
+
+});
+
+
+describe('a MAC', () => {
+
+    const secret = new Uint8Array(32);
+
+    it('carries the same hazard, and the same default', () => {
+
+        const macKey  = CoseKey.fromSymmetricKey(secret, { algorithm: CoseAlgorithms.HMAC256_256 });
+        const reading = readingInReadingOrder();
+
+        const created = CoseMac0.create(reading, macKey);
+
+        // A MAC covers bytes exactly as a signature does, so a forwarder that
+        // re-encodes the payload destroys the tag in the same way.
+        expect(created.payload).not.toEqual(reading);
+        expect(isCanonicalPayload(created.payload!)).toBe(true);
+
+        const forwarded = new CoseMac0(created.protectedHeaderBytes,
+                                       created.unprotectedHeader,
+                                       canonicalizePayload(created.payload!),
+                                       created.tag,
+                                       created.isTagged);
+
+        expect(forwarded.verify(macKey).verified).toBe(true);
+
+        // And without the default, the same forwarding breaks it.
+        const asItIs = CoseMac0.create(reading, macKey, { canonicalizePayload: false });
+
+        expect(asItIs.payload).toEqual(reading);
+        expect(asItIs.verify(macKey).verified).toBe(true);
+
+        const broken = new CoseMac0(asItIs.protectedHeaderBytes,
+                                    asItIs.unprotectedHeader,
+                                    canonicalizePayload(asItIs.payload!),
+                                    asItIs.tag,
+                                    asItIs.isTagged);
+
+        expect(broken.verify(macKey).verified).toBe(false);
 
     });
 

@@ -47,7 +47,8 @@
 
 import { macWith, verifyMacWith }            from './algorithm.ts';
 import type { CoseAlgorithm }                from './algorithm.ts';
-import { cbor, decode, encode, NO_BYTES }    from './cbor.ts';
+import { bytesEqual, cbor, decode,
+         encode, NO_BYTES }                  from './cbor.ts';
 import type { CborValue }                    from './cbor.ts';
 import { CoseError, notVerified, VERIFIED }  from './errors.ts';
 import type { Verification }                 from './errors.ts';
@@ -56,6 +57,7 @@ import { CoseHeaders,
 import { KEY_TYPE_SYMMETRIC }                from './key.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
+import { canonicalizePayload }               from './payload.ts';
 import { resolveAlgorithm, resolvePayload }  from './resolve.ts';
 
 
@@ -77,6 +79,15 @@ export interface Mac0Options {
 
     /** Whether to omit the payload from the message. */
     readonly detachPayload?:  boolean;
+
+    /**
+     * Whether to rewrite a CBOR payload in the deterministic encoding of
+     * RFC 8949 §4.2.1 before authenticating it, so that a receiver who parses
+     * and re-serializes the record arrives at the very bytes this tag covers.
+     * Defaults to true. A payload that is not CBOR is authenticated as it is.
+     */
+    readonly canonicalizePayload?:  boolean;
+
 
     /** Whether to wrap the message within CBOR tag 17. Defaults to true. */
     readonly tagged?:         boolean;
@@ -269,13 +280,25 @@ export class CoseMac0 {
 
         const protectedBytes = protectedHeader.toProtectedBytes();
 
+        // A MAC dies the same death as a signature: a receiver that decodes
+        // the payload and encodes it again produces the deterministic
+        // spelling, and a tag over another one no longer verifies. A detached
+        // payload is the caller's to transmit, so rewriting it here would
+        // authenticate bytes nobody holds.
+        const authenticated = options.canonicalizePayload === false
+                                  ? payload
+                                  : canonicalizePayload(payload);
+
+        if (options.detachPayload === true && !bytesEqual(authenticated, payload))
+            throw new CoseError('The payload of this COSE_Mac0 message is detached, so canonicalizing it here would authenticate bytes that nobody holds: canonicalize the payload yourself (canonicalizePayload), authenticate and transmit those, or pass canonicalizePayload: false to authenticate the payload exactly as it is!');
+
         const tag = macWith(algorithm,
-                            CoseMac0.toBeMaced(protectedBytes, payload, options.externalAad ?? null),
+                            CoseMac0.toBeMaced(protectedBytes, authenticated, options.externalAad ?? null),
                             key.privateKeyBytes());
 
         return new CoseMac0(protectedBytes,
                             unprotectedHeader,
-                            options.detachPayload === true ? null : payload,
+                            options.detachPayload === true ? null : authenticated,
                             tag,
                             options.tagged ?? true);
 

@@ -19,10 +19,11 @@ for why that is not a workflow's to do.
 - **`COSE_Sign1` and `COSE_Sign`** (RFC 9052), with detached payloads,
   external additional authenticated data, and the `crit` header parameter
   throughout.
-- **CBOR payloads are signed in their deterministic spelling** (RFC 8949
-  §4.2.1): a payload that is one well-formed CBOR item is rewritten into that
-  encoding before signing, unless `canonicalizePayload: false` asks for the
-  bytes as given. Forwarding is the reason — every hop that parses and
+- **CBOR payloads are signed and authenticated in their deterministic
+  spelling** (RFC 8949 §4.2.1): a payload that is one well-formed CBOR item is
+  rewritten into that encoding before `CoseSign1`, `CoseSign`, `CoseMac0` or
+  `CoseMac` covers it, unless `canonicalizePayload: false` asks for the bytes
+  as given. A MAC dies the same death as a signature when a hop re-encodes. Forwarding is the reason — every hop that parses and
   re-encodes a record writes the deterministic form, and a signature over any
   other spelling arrives unaltered in meaning and broken in fact. A payload
   that is not CBOR passes through untouched, since text, JSON or an image has
