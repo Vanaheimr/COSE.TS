@@ -50,5 +50,8 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Build
+        run: npm run build
+
       - name: Test against the published vectors
         run: npm test

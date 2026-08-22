@@ -1,0 +1,18 @@
+{
+    // The emitting configuration behind `npm run build`. The base tsconfig is
+    // a pure type checker (noEmit, `.ts`-extension imports); this one turns
+    // emission back on for `src/` alone and rewrites the `.ts` specifiers to
+    // the `.js` a consumer's resolver expects. tsup reads it for the bundle,
+    // `tsc --emitDeclarationOnly` for the declarations — which stay one file
+    // per module, a faithful projection of the source rather than a rollup.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit":                            false,
+        "outDir":                            "dist",
+        "rootDir":                           "src",
+        "declaration":                       true,
+        "declarationMap":                    true,
+        "rewriteRelativeImportExtensions":   true
+    },
+    "include": ["src"]
+}

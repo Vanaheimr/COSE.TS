@@ -465,8 +465,9 @@ label-shifting AKP parameters) and then by that same comparison.
 
 `ci.yml` installs everything from the lock file — the CBOR codec included,
 which since its first release arrives here the way it arrives everywhere —
-then type-checks both views of `src/` and runs the vectors above on Node 20,
-22 and 24 on Linux, and on Node 22 on Windows and macOS.
+then type-checks both views of `src/`, assembles the same artifact a release
+would publish, and runs the vectors above on Node 20, 22 and 24 on Linux, and
+on Node 22 on Windows and macOS.
 
 `nightly.yml` is a real drift detector rather than the same run on a timer.
 The foundations here — the CBOR codec and the `@noble` libraries — are
