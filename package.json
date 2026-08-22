@@ -62,9 +62,11 @@
         "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
         "build:finish": "tsx scripts/finish-build.ts",
         "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
         "test": "vitest run",
         "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
-        "verify": "npm run typecheck && npm run build && npm run test",
+        "verify": "npm run typecheck && npm run lint && npm run build && npm run test",
         "prepublishOnly": "npm run verify"
     },
     "dependencies": {
@@ -75,11 +77,15 @@
         "@vanaheimr/metrological-cbor": "^0.10.0"
     },
     "devDependencies": {
+        "@eslint/js": "^10.0.1",
         "@types/node": "^26.2.0",
         "esbuild": "^0.28.2",
+        "eslint": "^10.9.0",
+        "globals": "^17.11.0",
         "tsup": "^8.5.1",
         "tsx": "^4.23.12",
         "typescript": "^6.0.3",
+        "typescript-eslint": "^8.67.0",
         "vitest": "^4.1.10"
     }
 }

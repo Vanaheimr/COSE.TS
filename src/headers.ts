@@ -170,7 +170,7 @@ export class CoseHeaders {
 
         const value = this.get(label(HeaderLabel.algorithm));
 
-        if (value === null || value.type !== 'int')
+        if (value?.type !== 'int')
             return null;
 
         return algorithmFromCbor(value);

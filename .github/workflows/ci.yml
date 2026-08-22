@@ -48,6 +48,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       # The same artifact a release would publish, assembled on every push
       # rather than on release day — bundle, declarations, and the tidied
       # source map comment that tests/bundle.test.ts then asserts.

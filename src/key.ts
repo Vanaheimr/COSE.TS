@@ -992,7 +992,7 @@ export class CoseKey {
      * therefore a different identifier: a downgrade under an unchanged
      * identity is not expressible.
      */
-    public thumbprintKeyIdentifier(length: number             = 8,
+    public thumbprintKeyIdentifier(length             = 8,
                                    hash:   DigestAlgorithm    = 'sha256'): Uint8Array {
 
         const value = this.thumbprint(hash);
@@ -1006,7 +1006,7 @@ export class CoseKey {
 
 
     /** A copy of this key whose key identifier is its own thumbprint. */
-    public withThumbprintKeyIdentifier(length: number          = 8,
+    public withThumbprintKeyIdentifier(length          = 8,
                                        hash:   DigestAlgorithm = 'sha256'): CoseKey {
         return this.copy({ keyIdentifier: this.thumbprintKeyIdentifier(length, hash) });
     }

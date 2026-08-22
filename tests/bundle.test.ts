@@ -101,7 +101,7 @@ function inABrowser(): Record<string, unknown> {
         exports: {},
     };
 
-    sandbox['globalThis'] = sandbox;
+    sandbox.globalThis = sandbox;
 
     const context = createContext(sandbox);
 
@@ -122,8 +122,8 @@ function inABrowser(): Record<string, unknown> {
 
     return {
         exercise,
-        ...(sandbox['exports'] as Record<string, unknown>),
-        ...((sandbox['module'] as { exports: Record<string, unknown> }).exports),
+        ...(sandbox.exports as Record<string, unknown>),
+        ...((sandbox.module as { exports: Record<string, unknown> }).exports),
     };
 
 }
@@ -136,7 +136,7 @@ describe('the bundle, with no Node global in sight', () => {
 
     beforeAll(() => {
         library  = inABrowser();
-        exercise = library['exercise'] as (code: string) => unknown;
+        exercise = library.exercise as (code: string) => unknown;
     });
 
     it('loads at all', () => {
@@ -144,9 +144,9 @@ describe('the bundle, with no Node global in sight', () => {
         // If the bundle reaches for `process`, `require` or `Buffer` at load
         // time, `beforeAll` is where it throws — and the message names what
         // it wanted. This spells out that the load produced the library.
-        expect(typeof library['CoseSign1']).toBe('function');
-        expect(typeof library['CoseKey']).toBe('function');
-        expect(typeof library['signWith']).toBe('function');
+        expect(typeof library.CoseSign1).toBe('function');
+        expect(typeof library.CoseKey).toBe('function');
+        expect(typeof library.signWith).toBe('function');
 
     });
 

@@ -41,8 +41,8 @@ interface EddsaCurve {
 
 
 const IMPLEMENTED: Readonly<Record<string, EddsaCurve>> = {
-    'Ed25519': ed25519 as unknown as EddsaCurve,
-    'Ed448':   ed448   as unknown as EddsaCurve,
+    'Ed25519': ed25519,
+    'Ed448':   ed448,
 };
 
 

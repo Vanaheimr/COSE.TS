@@ -75,7 +75,7 @@ describe('the brainpoolP320r1 definition', () => {
 
         // A scalar at or beyond the order is not a private key.
         expect(() => CoseKey.fromPrivateScalar(CoseCurves.brainpoolP320r1,
-                                               unhex('D35E472036BC4FB7E13C785ED201E065F98FCFA5B68F12A32D482EC7EE8658E98691555B44C59311')))
+                                               unhex(ORDER.toString(16).toUpperCase())))
             .toThrow();
 
     });

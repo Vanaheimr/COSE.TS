@@ -475,8 +475,7 @@ export class X509Certificate {
     /** Whether the certified key may sign other certificates. */
     public get isCertificateAuthority(): boolean {
 
-        return this.basicConstraints !== null &&
-               this.basicConstraints.certificateAuthority;
+        return this.basicConstraints?.certificateAuthority ?? false;
 
     }
 

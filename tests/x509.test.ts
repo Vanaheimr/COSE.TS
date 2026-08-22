@@ -26,7 +26,8 @@ import { describe, expect, it }              from 'vitest';
 import corpus                               from './certificate-corpus.json' with { type: 'json' };
 
 import type { CborEntry }                     from '../src/index.ts';
-import { cbor, CoseAlgorithms, CoseCertificateChain,
+import { algorithmByName, cbor, CoseAlgorithms,
+         CoseCertificateChain,
          CoseCertificateHash, CoseHeaders,
          CoseKey, CoseSign1, curveByName, DerReader,
          KeyUsage, label, HeaderLabel,
@@ -60,10 +61,11 @@ const keyOf = (name: string): CoseKey => {
     if (entry === undefined)
         throw new Error(`The certificate corpus holds no private key for '${name}'!`);
 
-    const algorithm = CoseAlgorithms[entry.algorithm.replace(/-/gu, '') as keyof typeof CoseAlgorithms]
-                          ?? (entry.algorithm === 'ML-DSA-65' ? CoseAlgorithms.MLDSA65 : undefined);
+    // The corpus names algorithms the way the registry does, so the registry
+    // lookup is the whole of the translation.
+    const algorithm = algorithmByName(entry.algorithm);
 
-    if (algorithm === undefined)
+    if (algorithm === null)
         throw new Error(`Unknown algorithm '${entry.algorithm}' in the certificate corpus!`);
 
     if (algorithm.family === 'mldsa')
@@ -165,7 +167,7 @@ describe('Reading what Bouncy Castle wrote', () => {
 
         const meter = certificate('meter');
 
-        expect(hex(meter.encoded)).toBe(certificates['meter']);
+        expect(hex(meter.encoded)).toBe(certificates.meter);
         expect(hex(meter.thumbprint())).toHaveLength(64);
 
     });
@@ -477,14 +479,14 @@ describe('DER is read strictly, because that is where differentials live', () =>
 
     it('refuses trailing data after a certificate', () => {
 
-        expect(() => X509Certificate.parse(unhex(`${certificates['meter']!}00`)))
+        expect(() => X509Certificate.parse(unhex(`${certificates.meter!}00`)))
             .toThrow(/octets follow/u);
 
     });
 
     it('refuses a truncated certificate', () => {
 
-        const meter = certificates['meter']!;
+        const meter = certificates.meter!;
 
         expect(() => X509Certificate.parse(unhex(meter.slice(0, meter.length - 20)))).toThrow();
 

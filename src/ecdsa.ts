@@ -99,14 +99,14 @@ interface EcdsaCurve {
  * EC2 curve the COSE registry has.
  */
 const IMPLEMENTED: Readonly<Record<string, EcdsaCurve>> = {
-    'P-256':            p256            as unknown as EcdsaCurve,
-    'P-384':            p384            as unknown as EcdsaCurve,
-    'P-521':            p521            as unknown as EcdsaCurve,
-    'secp256k1':        secp256k1       as unknown as EcdsaCurve,
-    'brainpoolP256r1':  brainpoolP256r1 as unknown as EcdsaCurve,
-    'brainpoolP320r1':  brainpoolP320r1 as unknown as EcdsaCurve,
-    'brainpoolP384r1':  brainpoolP384r1 as unknown as EcdsaCurve,
-    'brainpoolP512r1':  brainpoolP512r1 as unknown as EcdsaCurve,
+    'P-256':            p256,
+    'P-384':            p384,
+    'P-521':            p521,
+    'secp256k1':        secp256k1,
+    'brainpoolP256r1':  brainpoolP256r1,
+    'brainpoolP320r1':  brainpoolP320r1,
+    'brainpoolP384r1':  brainpoolP384r1,
+    'brainpoolP512r1':  brainpoolP512r1,
 };
 
 

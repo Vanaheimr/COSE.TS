@@ -53,9 +53,9 @@ export type MldsaParameterSet = typeof MLDSA_PARAMETER_SETS[number];
 
 
 const IMPLEMENTED: Readonly<Record<string, MldsaScheme>> = {
-    'ML-DSA-44': ml_dsa44 as unknown as MldsaScheme,
-    'ML-DSA-65': ml_dsa65 as unknown as MldsaScheme,
-    'ML-DSA-87': ml_dsa87 as unknown as MldsaScheme,
+    'ML-DSA-44': ml_dsa44,
+    'ML-DSA-65': ml_dsa65,
+    'ML-DSA-87': ml_dsa87,
 };
 
 
@@ -85,7 +85,7 @@ function schemeOf(parameterSet: string): MldsaScheme {
 
 
 /** Whether the given name is a parameter set this build can compute with. */
-export const isMldsaParameterSet = (parameterSet: string): boolean =>
+export const isMldsaParameterSet = (parameterSet: string): parameterSet is MldsaParameterSet =>
     parameterSet in IMPLEMENTED;
 
 
@@ -129,7 +129,7 @@ export function mldsaVerify(parameterSet: string,
                             message:      Uint8Array,
                             publicKey:    Uint8Array): boolean {
 
-    const sizes = MLDSA_SIZES[parameterSet as MldsaParameterSet];
+    const sizes = isMldsaParameterSet(parameterSet) ? MLDSA_SIZES[parameterSet] : undefined;
 
     if (sizes !== undefined && signature.length !== sizes.signature)
         throw new CoseError(`An ${parameterSet} signature must be ${String(sizes.signature)} bytes wide, but was ${String(signature.length)} bytes wide!`);
