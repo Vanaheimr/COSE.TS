@@ -1,0 +1,50 @@
+name: Tag
+
+on:
+  push:
+    tags: ['v*']
+
+# Read-only, and there is nothing here to write with. This workflow does not
+# publish: publishing to npm is a hand operation with multi-factor
+# authentication, for the reasons in docs/releasing.md, and no credential that
+# could publish lives in this repository. What it does is answer the question a
+# maintainer has at exactly this moment — *is the thing I just tagged good?*
+permissions:
+  contents: read
+
+jobs:
+
+  verify:
+    name: Verify the tagged commit
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check that the tag matches the package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $PKG" >&2
+            exit 1
+          fi
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Rehearse the tarball
+        run: npm pack --dry-run
+
+      - name: Say what is left to do
+        run: |
+          echo "::notice title=Ready to publish::The tagged commit verifies. Publishing is manual: npm publish, with MFA, from a trusted machine. See docs/releasing.md."
