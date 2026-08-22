@@ -276,8 +276,15 @@ sent it. AEAD integrity means "whoever holds this key wrote this". RFC 9052
 inside an encrypted envelope is how one gets both — and COSE nests, so both can
 travel at once.
 
-Not implemented: AES-CCM, ChaCha20/Poly1305, and the `COSE_Encrypt` recipient
-routes listed above.
+Not implemented: AES-CCM and ChaCha20/Poly1305 — scope rather than judgement,
+in both cases. CCM is eight registered variants of nonce and tag width (64-bit
+tags included, a constrained-radio economy), serving a world this library does
+not live in — and since the crypto moved to `@noble/ciphers`, a primitive
+without a supplier: noble deliberately ships no CCM, and `node:crypto`, which
+did, is exactly what the browser support removed. ChaCha20/Poly1305 earns its
+keep where there is no AES hardware, which nothing here asked for. And Styx
+carries neither, so the cross-signing suite would have nothing to compare
+them against. Also absent: the `COSE_Encrypt` recipient routes listed above.
 
 #### The symmetric key
 
@@ -342,10 +349,16 @@ written here, which is not a convenience: a DER parser checked against
 certificates its own package produced would agree with itself about any
 misreading whatsoever.
 
-Not implemented: `COSE_Countersignature0`, AES-CBC-MAC, AES-CCM,
-ChaCha20/Poly1305, ECDH-based key agreement, and the `x5bag` and `x5u` header
-parameters — a bag is an unordered heap with no path to follow, and a URI is a
-fetch, which a signature library has no business performing.
+Not implemented, deliberately in every case: `COSE_Countersignature0`, the
+abbreviated countersignature of RFC 9338 — a bare signature with no header
+buckets of its own, so which algorithm made it and which key checks it travel
+outside the message, by agreement, which is the opposite direction from
+everything else here; AES-CBC-MAC, argued in the MAC chapter above; AES-CCM
+and ChaCha20/Poly1305, argued in the encryption chapter above; ECDH-based key
+agreement and the HKDF derivations, which need `COSE_KDF_Context`, a structure
+of its own; and the `x5bag` and `x5u` header parameters — a bag is an
+unordered heap with no path to follow, and a URI is a fetch, which a signature
+library has no business performing.
 
 ## Signing and verifying
 

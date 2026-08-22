@@ -36,13 +36,21 @@
  * and why a signed payload inside an encrypted envelope is how one gets both.
  * `signWith` and `macWith` refuse each other's algorithms accordingly.
  *
- * What is not: AES-CBC-MAC — whose safety within COSE rests on the encoding
- * rather than on the primitive, see RFC 9053 Section 3.2.1 — AES-CCM,
- * ChaCha20/Poly1305, ECDH-based key agreement and the HKDF key derivations
- * (they need COSE_KDF_Context, a structure of its own),
- * `COSE_Countersignature0`, and the `x5bag` and `x5u` header parameters: a bag
- * is an unordered heap with no path to follow, and a URI is a fetch, which a
- * signature library has no business performing.
+ * What is not, each for a reason. AES-CBC-MAC, whose safety within COSE rests
+ * on the encoding rather than on the primitive, see RFC 9053 Section 3.2.1.
+ * AES-CCM and ChaCha20/Poly1305, as scope rather than judgement: CCM is eight
+ * registered variants of nonce and tag width for a constrained-device world
+ * this library does not live in — and, since the crypto moved to noble, a
+ * primitive without a supplier — while ChaCha earns its keep where there is
+ * no AES hardware; Styx carries neither, so the cross-signing suite would
+ * have nothing to compare. `COSE_Countersignature0`, a bare signature with no
+ * header buckets of its own: which algorithm made it and which key checks it
+ * travel outside the message, by agreement, and everything else here works in
+ * the opposite direction. ECDH-based key agreement and the HKDF key
+ * derivations, which need COSE_KDF_Context, a structure of its own. And the
+ * `x5bag` and `x5u` header parameters: a bag is an unordered heap with no
+ * path to follow, and a URI is a fetch, which a signature library has no
+ * business performing.
  */
 
 export { CoseError, notDecrypted, notVerified,
