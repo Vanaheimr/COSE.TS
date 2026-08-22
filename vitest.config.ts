@@ -20,6 +20,17 @@ export default defineConfig({
             // index.ts is re-exports alone; counting it dilutes the number
             // without guarding anything.
             exclude:  ['src/index.ts'],
+            // Floors just under what is measured, so the number can only be
+            // argued upward: a change that drops below them fails the
+            // coverage run rather than shipping quietly. What stays uncovered
+            // is deliberate — guards provably dead behind earlier checks, and
+            // branches only a crafted certificate could reach.
+            thresholds: {
+                statements: 93,
+                branches:   87,
+                functions:  96,
+                lines:      93,
+            },
         },
     },
 });
