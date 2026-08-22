@@ -28,7 +28,26 @@ rule that it will never do cryptography: a data format that also carried a
 crypto stack would be unusable as the leaf of somebody else's schema. That rule
 stays intact by keeping the two apart — exactly as Styx keeps `Illias/COSE`
 beside `Illias/CBOR` rather than inside it. Whoever wants the format gets no
-crypto; whoever wants signatures adds this and gets `@noble/curves` with it.
+crypto; whoever wants signatures adds this and gets the `@noble` family with it.
+
+## Where it runs
+
+Under Node and in a browser alike. The cryptography is the `@noble` family end
+to end — [curves](https://github.com/paulmillr/noble-curves),
+[hashes](https://github.com/paulmillr/noble-hashes),
+[ciphers](https://github.com/paulmillr/noble-ciphers),
+[post-quantum](https://github.com/paulmillr/noble-post-quantum) — and nothing
+touches `node:crypto` or WebCrypto, so both platforms run the same
+implementation, byte for byte. That is a choice with reasons beyond
+portability: WebCrypto is asynchronous end to end, which would put an `await`
+into every signature of this API, and it speaks neither brainpool nor ML-DSA,
+so the platform's own crypto could not carry the algorithm registry anyway.
+
+The claim is enforced rather than intended:
+[`tsconfig.browser.json`](tsconfig.browser.json) type-checks `src/` a second
+time against a browser's view of the world, where `node:*` does not resolve
+and `Buffer` is not a name. A Node-only import is a build failure here, not a
+bug report from somebody's bundler.
 
 ## Getting the CBOR codec
 
@@ -460,10 +479,10 @@ installed, because it has no runtime dependencies to install.
 
 `nightly.yml` is a real drift detector rather than the same run on a timer.
 Two foundations move without a commit landing here: the CBOR codec, taken from
-another repository's master, and `@noble/curves`, which pull requests install
-from the lock file and the nightly installs without one. Either can break these
-tests overnight — the curve library in particular has already done it once, by
-normalising ECDSA's `s` where COSE does not.
+another repository's master, and the `@noble` libraries, which pull requests
+install from the lock file and the nightly installs without one. Either can
+break these tests overnight — the curve library in particular has already done
+it once, by normalising ECDSA's `s` where COSE does not.
 
 The third badge is the one that matters most and belongs to another repository:
 [MCBORConformanceTests](https://github.com/Vanaheimr/MCBORConformanceTests)

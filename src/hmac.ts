@@ -32,10 +32,11 @@
  *     "the leftmost tag-length bits" of the full HMAC.
  */
 
-import { createHmac, timingSafeEqual }  from 'node:crypto';
+import { hmac as nobleHmac }     from '@noble/hashes/hmac.js';
 
-import { CoseError }                    from './errors.ts';
-import type { DigestAlgorithm }         from './ecdsa.ts';
+import { CoseError }             from './errors.ts';
+import { HASHES }                from './ecdsa.ts';
+import type { DigestAlgorithm }  from './ecdsa.ts';
 
 
 /**
@@ -49,7 +50,7 @@ import type { DigestAlgorithm }         from './ecdsa.ts';
  * who was not already choosing their own key length.
  */
 export const hmac = (hash: DigestAlgorithm, key: Uint8Array, message: Uint8Array): Uint8Array =>
-    new Uint8Array(createHmac(hash, key).update(message).digest());
+    nobleHmac(HASHES[hash], key, message);
 
 
 /**
@@ -89,6 +90,14 @@ export function tagsEqual(left: Uint8Array, right: Uint8Array): boolean {
     if (left.length !== right.length)
         return false;
 
-    return timingSafeEqual(left, right);
+    // The classic accumulating XOR: every byte is visited whatever the data
+    // says, and only the final OR of all differences decides. (The `?? 0` is
+    // for the type checker alone; the loop bound keeps the index in range.)
+    let difference = 0;
+
+    for (let index = 0; index < left.length; index++)
+        difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+
+    return difference === 0;
 
 }

@@ -22,14 +22,16 @@
  * squarely, and wrapping anything guessable with it is a mistake the API
  * cannot prevent.
  *
- * Both come from `node:crypto` rather than from a dependency, exactly as the
- * hashes and HMAC do.
+ * Both come from `@noble/ciphers` — the same audited family the curves, the
+ * hashes and ML-DSA already come from — rather than from `node:crypto` or
+ * WebCrypto: the former exists only under Node, the latter only behind an
+ * `async` API, and this library runs wherever its CBOR codec runs, which
+ * includes browsers.
  */
 
-import { createCipheriv, createDecipheriv }  from 'node:crypto';
-import type { CipherGCMTypes }               from 'node:crypto';
+import { aeskw, gcm }  from '@noble/ciphers/aes.js';
 
-import { CoseError }                         from './errors.ts';
+import { CoseError }   from './errors.ts';
 
 
 /** The nonce width AES-GCM is fixed to in COSE: 96 bits [RFC 9053, Section 4.1]. */
@@ -38,29 +40,14 @@ export const GCM_NONCE_SIZE = 12;
 /** The authentication tag width AES-GCM is fixed to in COSE: 128 bits. */
 export const GCM_TAG_SIZE = 16;
 
-/** The eight-octet Initial Value of AES key wrap [RFC 3394, Section 2.2.3.1]. */
-const KEY_WRAP_IV = new Uint8Array([0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6]);
-
-
-function keyBits(keySize: number, what: string): number {
+// The library checks key widths itself, but with its own error type and its
+// own words. The refusal is this module's contract, so it happens here first.
+function checkKeySize(keySize: number, what: string): void {
 
     if (keySize !== 16 && keySize !== 24 && keySize !== 32)
         throw new CoseError(`${what} needs a key of 16, 24 or 32 bytes, but a ${String(keySize)}-byte key was given!`);
 
-    return keySize * 8;
-
 }
-
-// The cast is truthful rather than convenient: keyBits has already refused
-// every width but 128, 192 and 256, so the three names it can build are
-// exactly the three the type admits.
-/** e.g. `aes-256-gcm`. */
-const gcmCipher     = (keySize: number): CipherGCMTypes =>
-    `aes-${String(keyBits(keySize, 'AES-GCM'))}-gcm` as CipherGCMTypes;
-
-/** e.g. `aes256-wrap` — note that OpenSSL spells this one without the dash. */
-const keyWrapCipher = (keySize: number): string =>
-    `aes${String(keyBits(keySize, 'AES key wrap'))}-wrap`;
 
 
 /**
@@ -83,14 +70,9 @@ export function aesGcmEncrypt(key:             Uint8Array,
     if (nonce.length !== GCM_NONCE_SIZE)
         throw new CoseError(`AES-GCM within COSE uses a ${String(GCM_NONCE_SIZE)}-byte nonce [RFC 9053, Section 4.1], but a ${String(nonce.length)}-byte one was given!`);
 
-    const cipher = createCipheriv(gcmCipher(key.length), key, nonce,
-                                  { authTagLength: GCM_TAG_SIZE });
+    checkKeySize(key.length, 'AES-GCM');
 
-    cipher.setAAD(additionalData);
-
-    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-
-    return new Uint8Array(Buffer.concat([ciphertext, cipher.getAuthTag()]));
+    return gcm(key, nonce, additionalData).encrypt(plaintext);
 
 }
 
@@ -116,22 +98,16 @@ export function aesGcmDecrypt(key:             Uint8Array,
     if (ciphertext.length < GCM_TAG_SIZE)
         return null;
 
-    const body = ciphertext.subarray(0, ciphertext.length - GCM_TAG_SIZE);
-    const tag  = ciphertext.subarray(ciphertext.length - GCM_TAG_SIZE);
-
-    const decipher = createDecipheriv(gcmCipher(key.length), key, nonce,
-                                      { authTagLength: GCM_TAG_SIZE });
-
-    decipher.setAAD(additionalData);
-    decipher.setAuthTag(tag);
+    checkKeySize(key.length, 'AES-GCM');
 
     try {
-        return new Uint8Array(Buffer.concat([decipher.update(body), decipher.final()]));
+        // The library takes `ciphertext ‖ tag` in one piece, exactly as COSE
+        // carries it, and throws exactly when the tag does not check out.
+        // There is nothing to report beyond that, and reporting more would be
+        // a padding-oracle of one's own making.
+        return gcm(key, nonce, additionalData).decrypt(ciphertext);
     }
     catch {
-        // `final()` throws exactly when the tag does not check out. There is
-        // nothing to report beyond that, and reporting more would be a
-        // padding-oracle of one's own making.
         return null;
     }
 
@@ -151,10 +127,9 @@ export function aesKeyWrap(keyEncryptionKey: Uint8Array,
     if (contentKey.length % 8 !== 0 || contentKey.length < 16)
         throw new CoseError(`AES key wrap needs a key of at least 16 bytes and a multiple of 8 [RFC 3394], but a ${String(contentKey.length)}-byte key was given!`);
 
-    const cipher = createCipheriv(keyWrapCipher(keyEncryptionKey.length),
-                                  keyEncryptionKey, KEY_WRAP_IV);
+    checkKeySize(keyEncryptionKey.length, 'AES key wrap');
 
-    return new Uint8Array(Buffer.concat([cipher.update(contentKey), cipher.final()]));
+    return aeskw(keyEncryptionKey).encrypt(contentKey);
 
 }
 
@@ -173,12 +148,10 @@ export function aesKeyUnwrap(keyEncryptionKey: Uint8Array,
         return null;
 
     try {
-
-        const decipher = createDecipheriv(keyWrapCipher(keyEncryptionKey.length),
-                                          keyEncryptionKey, KEY_WRAP_IV);
-
-        return new Uint8Array(Buffer.concat([decipher.update(wrapped), decipher.final()]));
-
+        // A key-encryption key of the wrong width throws here too, which for
+        // an *unwrap* is the right shape: null, like any other failure to
+        // unwrap what was given.
+        return aeskw(keyEncryptionKey).decrypt(wrapped);
     }
     catch {
         return null;

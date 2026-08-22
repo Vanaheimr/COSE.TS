@@ -17,10 +17,12 @@
     "comment": "The CBOR codec is reached through src/cbor.ts alone, and currently as a sibling checkout of MetrologicalCBOR.TS rather than as a dependency, because @vanaheimr/metrological-cbor is not published yet. Signing from source is also what the conformance suite needs. When that package ships, src/cbor.ts gains an ordinary import and this file a dependency.",
     "scripts": {
         "test": "vitest run",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json"
     },
     "dependencies": {
+        "@noble/ciphers": "^2.3.0",
         "@noble/curves": "^2.3.0",
+        "@noble/hashes": "^2.3.0",
         "@noble/post-quantum": "^0.7.0"
     },
     "devDependencies": {

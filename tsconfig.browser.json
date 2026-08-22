@@ -1,0 +1,15 @@
+{
+    // The proof behind "runs in browsers too": src/ checked against a world
+    // with no Node in it. The main tsconfig checks everything with the Node
+    // types, which the tests need; this one checks src/ alone against the
+    // browser's view, where `node:*` does not resolve and `Buffer` is not a
+    // name. Code that passes both stays inside the intersection — the shared
+    // globals like TextDecoder and the libraries in package.json — and a
+    // stray `node:crypto` import fails the build rather than a user.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "lib":   ["ES2023", "DOM"],
+        "types": []
+    },
+    "include": ["src/**/*.ts"]
+}

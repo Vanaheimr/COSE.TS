@@ -31,10 +31,9 @@
  * private key.
  */
 
-import { createHash }                                   from 'node:crypto';
-
 import { ecdsa, weierstrass }                           from '@noble/curves/abstract/weierstrass.js';
-import { sha384 }                                       from '@noble/hashes/sha2.js';
+import { sha256, sha384, sha512 }                       from '@noble/hashes/sha2.js';
+import type { CHash }                                   from '@noble/hashes/utils.js';
 import { p256, p384, p521 }                             from '@noble/curves/nist.js';
 import { brainpoolP256r1, brainpoolP384r1,
          brainpoolP512r1 }                              from '@noble/curves/misc.js';
@@ -77,6 +76,9 @@ const brainpoolP320r1 = /* @__PURE__ */ ecdsa(weierstrass({
 
 /** The digest algorithms COSE signature algorithms use. */
 export type DigestAlgorithm = 'sha256' | 'sha384' | 'sha512';
+
+/** The implementation behind each digest name — shared with the HMAC in `hmac.ts`. */
+export const HASHES: Record<DigestAlgorithm, CHash> = { sha256, sha384, sha512 };
 
 
 /** What this module needs from an elliptic curve implementation. */
@@ -127,7 +129,7 @@ function implementationOf(curve: CoseCurve): EcdsaCurve {
 
 /** The message digest an algorithm signs over. */
 export const digest = (algorithm: DigestAlgorithm, data: Uint8Array): Uint8Array =>
-    new Uint8Array(createHash(algorithm).update(data).digest());
+    HASHES[algorithm](data);
 
 
 /**

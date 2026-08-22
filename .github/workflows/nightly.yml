@@ -3,10 +3,10 @@ name: Nightly
 # The counterpart to ci.yml, and here it is a genuine drift detector rather
 # than the same run on a timer. This repository has two moving foundations it
 # does not pin: the CBOR codec it signs with, which lives in another repository
-# and is taken from its master, and @noble/curves, which every pull request
-# installs from the lock file. Either can break these tests without a single
-# commit landing here, and a push-triggered workflow would only notice the next
-# time somebody happened to push.
+# and is taken from its master, and the @noble libraries, which every pull
+# request installs from the lock file. Any of them can break these tests
+# without a single commit landing here, and a push-triggered workflow would
+# only notice the next time somebody happened to push.
 #
 # Two things worth knowing about scheduled workflows: they only ever run on the
 # default branch, and GitHub disables them after 60 days without any repository
