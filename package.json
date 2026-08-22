@@ -1,11 +1,26 @@
 {
     "name": "@vanaheimr/cose",
     "version": "0.1.0",
-    "private": true,
-    "type": "module",
-    "license": "Apache-2.0",
-    "author": "GraphDefined GmbH <achim.friedland@graphdefined.com>",
     "description": "CBOR Object Signing and Encryption (RFC 9052) in TypeScript, on top of the Metrological CBOR codec — the TypeScript counterpart of Vanaheimr Styx's Illias/COSE.",
+    "keywords": [
+        "cose",
+        "cbor",
+        "rfc9052",
+        "rfc9053",
+        "cose-sign1",
+        "signing",
+        "encryption",
+        "mac",
+        "ecdsa",
+        "eddsa",
+        "ml-dsa",
+        "post-quantum",
+        "brainpool",
+        "x509",
+        "metrology",
+        "smart-metering",
+        "e-mobility"
+    ],
     "homepage": "https://github.com/Vanaheimr/COSE.TS#readme",
     "bugs": {
         "url": "https://github.com/Vanaheimr/COSE.TS/issues"
@@ -14,6 +29,33 @@
         "type": "git",
         "url": "git+https://github.com/Vanaheimr/COSE.TS.git"
     },
+    "license": "Apache-2.0",
+    "author": "GraphDefined GmbH <achim.friedland@graphdefined.com>",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE.md",
+        "NOTICE",
+        "CHANGELOG.md"
+    ],
+    "sideEffects": false,
+    "engines": {
+        "node": ">=20"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
     "scripts": {
         "build": "npm run build:js && npm run build:types && npm run build:finish",
         "build:js": "tsup",
@@ -21,7 +63,9 @@
         "build:finish": "tsx scripts/finish-build.ts",
         "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
         "test": "vitest run",
-        "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json"
+        "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
+        "verify": "npm run typecheck && npm run build && npm run test",
+        "prepublishOnly": "npm run verify"
     },
     "dependencies": {
         "@noble/ciphers": "^2.3.0",

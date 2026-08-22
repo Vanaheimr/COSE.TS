@@ -49,7 +49,17 @@ time against a browser's view of the world, where `node:*` does not resolve
 and `Buffer` is not a name. A Node-only import is a build failure here, not a
 bug report from somebody's bundler.
 
-## Getting the CBOR codec
+## Installation
+
+```bash
+npm install @vanaheimr/cose
+```
+
+The package is ESM, with one bundled `dist/index.js` and per-module type
+declarations. There is deliberately no `.cjs` twin: every runtime dependency
+ships as ESM only, so a CommonJS build would promise a compatibility its own
+imports cannot honour. `require()` works where Node supports `require(esm)`,
+which is 20.19 and later.
 
 [`src/cbor.ts`](src/cbor.ts) is the only module that knows where the codec
 comes from, and it names
