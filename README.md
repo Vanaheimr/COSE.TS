@@ -44,7 +44,7 @@ into every signature of this API, and it speaks neither brainpool nor ML-DSA,
 so the platform's own crypto could not carry the algorithm registry anyway.
 
 The claim is enforced rather than intended:
-[`tsconfig.browser.json`](tsconfig.browser.json) type-checks `src/` a second
+[`tsconfig.browser.json`](https://github.com/Vanaheimr/COSE.TS/blob/master/tsconfig.browser.json) type-checks `src/` a second
 time against a browser's view of the world, where `node:*` does not resolve
 and `Buffer` is not a name. A Node-only import is a build failure here, not a
 bug report from somebody's bundler.
@@ -61,7 +61,7 @@ ships as ESM only, so a CommonJS build would promise a compatibility its own
 imports cannot honour. `require()` works where Node supports `require(esm)`,
 which is 20.19 and later.
 
-[`src/cbor.ts`](src/cbor.ts) is the only module that knows where the codec
+[`src/cbor.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/cbor.ts) is the only module that knows where the codec
 comes from, and it names
 [`@vanaheimr/metrological-cbor`](https://www.npmjs.com/package/@vanaheimr/metrological-cbor)
 — an ordinary dependency, pinned by the lock file like everything else. The
@@ -134,12 +134,12 @@ two implementations can be compared byte for byte or only asked whether each
 accepts the other.
 
 Every EC2 curve in the COSE registry is computable here. **brainpoolP320r1 is
-the one this package defines itself**, in [`src/ecdsa.ts`](src/ecdsa.ts), from
+the one this package defines itself**, in [`src/ecdsa.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/ecdsa.ts), from
 the domain parameters of [RFC 5639 §3.4](https://www.rfc-editor.org/rfc/rfc5639#section-3.4):
 the underlying library ships the three other brainpool curves and not that one.
 Transcribing 320-bit constants is the kind of task that fails silently, so they
 are checked three times over — the curve constructor refuses a generator that
-is not on the curve, [`tests/brainpool.test.ts`](tests/brainpool.test.ts)
+is not on the curve, [`tests/brainpool.test.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/tests/brainpool.test.ts)
 checks that the order really is the order, and the conformance suite signs with
 them and compares the bytes against Bouncy Castle's own brainpoolP320r1. A
 single wrong digit survives none of the three.
@@ -327,7 +327,7 @@ means: revocation, name constraints, certificate policies, and path length
 beyond the CA flag itself.
 
 The DER is read here rather than by a library, in
-[`src/asn1.ts`](src/asn1.ts) and [`src/x509.ts`](src/x509.ts), and the reason
+[`src/asn1.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/asn1.ts) and [`src/x509.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/x509.ts), and the reason
 is the same one that made brainpoolP320r1 a local definition. A certificate
 chain has to be verifiable with every algorithm this package signs with — which
 includes the four brainpool curves and the three ML-DSA parameter sets — and
