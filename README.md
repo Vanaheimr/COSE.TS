@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Vanaheimr/COSE.TS/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/COSE.TS/actions/workflows/ci.yml)
 [![Nightly](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml/badge.svg)](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml)
+[![npm](https://img.shields.io/npm/v/@vanaheimr/cose.svg)](https://www.npmjs.com/package/@vanaheimr/cose)
 [![Cross-signing](https://img.shields.io/github/actions/workflow/status/Vanaheimr/MCBORConformanceTests/ci.yml?branch=master&label=cross-signing%20vs.%20Styx)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE.md)
 

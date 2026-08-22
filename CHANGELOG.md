@@ -43,6 +43,24 @@ for why that is not a workflow's to do.
   ships as ESM only, so a CommonJS build would promise a compatibility its
   own imports cannot honour. Node that can `require(esm)` — 20.19 and later —
   loads the ESM build fine.
+- **A fuzz suite** (`tests/fuzz`): every parser against damaged messages,
+  damaged certificates and arbitrary bytes — a value or a typed refusal,
+  never a third thing; whatever is accepted re-encodes to a fixed point; a
+  `COSE_Sign1` signature with any single byte damaged never verifies. Two
+  thousand cases per property on every test run, two hundred thousand in the
+  nightly.
+- **The toolchain the codec has**: ESLint with the typed rule sets, coverage,
+  an API reference that validates as it renders, and a nightly dependency
+  audit — with `npm run verify` running the lot.
+
+### Fixed
+
+- **Two untyped escapes in the DER string reader**, both found by the fuzz
+  suite's first run: a certificate name holding invalid UTF-8 escaped as the
+  platform's own `TypeError`, and a UniversalString character beyond U+10FFFF
+  would have escaped as a `RangeError`. Both are `CoseError` refusals now,
+  and the wide-string decoder builds its result a character at a time, so a
+  large enough hostile string is no longer a stack overflow.
 
 ### Verified against
 
