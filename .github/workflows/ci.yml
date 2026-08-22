@@ -63,3 +63,9 @@ jobs:
       # somebody else published.
       - name: Test against the published vectors
         run: npm test
+
+      # Typedoc validates while it renders: a symbol reachable from the API
+      # and not exported, or a doc link that goes nowhere, fails this step
+      # rather than shipping as a broken page.
+      - name: Generate the API reference
+        run: npm run docs:api

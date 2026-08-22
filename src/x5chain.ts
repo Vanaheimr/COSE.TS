@@ -49,7 +49,7 @@ export interface ChainValidationOptions {
 // ------------------------------------------------------------------ chain ---
 
 /**
- * A `COSE_X509` [RFC 9360, Section 2]: a chain of X.509 certificates.
+ * A `COSE_X509` [RFC 9360, Section 2] — a chain of X.509 certificates.
  *
  * ```
  * COSE_X509 = bstr / [ 2*certs: bstr ]
@@ -253,7 +253,7 @@ function mayIssue(certificate: X509Certificate): Verification {
 // ------------------------------------------------------------- thumbprint ---
 
 /**
- * A `COSE_CertHash` [RFC 9360, Section 2]: the hash of a DER encoded
+ * A `COSE_CertHash` [RFC 9360, Section 2] — the hash of a DER encoded
  * certificate, as `x5t` carries it.
  *
  * ```
