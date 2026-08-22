@@ -31,7 +31,7 @@ import { hex, unhex }                        from './vectors.ts';
 
 import { formatMetrologicalValue,
          METROLOGICAL_VALUE_TAG,
-         metrologicalValueFromCbor }         from '../../MetrologicalCBOR.TS/src/index.ts';
+         metrologicalValueFromCbor }         from '@vanaheimr/metrological-cbor';
 
 
 /** Section 6 of `tag-44252-signed-example.md`. */

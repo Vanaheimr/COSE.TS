@@ -52,22 +52,13 @@ bug report from somebody's bundler.
 ## Getting the CBOR codec
 
 [`src/cbor.ts`](src/cbor.ts) is the only module that knows where the codec
-comes from, and it currently reaches into a **sibling checkout** of
-[MetrologicalCBOR.TS](https://github.com/Vanaheimr/MetrologicalCBOR.TS) rather
-than into `node_modules`, because that package is not published yet:
-
-```
-some-directory/
-├── MetrologicalCBOR.TS/
-└── COSE.TS/            ← expects ../MetrologicalCBOR.TS
-```
-
-which is the layout the conformance suite checks out anyway, as two sibling
-submodules. Building against source rather than against a release is also what
-that suite needs: what it signs has to be what the codec produces *today*.
-
-When `@vanaheimr/metrological-cbor` ships, that one line becomes an ordinary
-import and `package.json` gains a dependency. Nothing else changes.
+comes from, and it names
+[`@vanaheimr/metrological-cbor`](https://www.npmjs.com/package/@vanaheimr/metrological-cbor)
+— an ordinary dependency, pinned by the lock file like everything else. The
+place that still builds both implementations from source is the cross-signing
+conformance suite, whose job is exactly that: what it signs has to be what the
+codec produces *today*, and it has its own repository and checkout layout
+for it.
 
 ## What is implemented
 
@@ -472,17 +463,18 @@ label-shifting AKP parameters) and then by that same comparison.
 
 ## Continuous integration
 
-`ci.yml` runs the vectors above on Node 20, 22 and 24 on Linux, and on Node 22
-on Windows and macOS. Both checkouts land as siblings, since that is the layout
-[`src/cbor.ts`](src/cbor.ts) expects; the codec is checked out and not
-installed, because it has no runtime dependencies to install.
+`ci.yml` installs everything from the lock file — the CBOR codec included,
+which since its first release arrives here the way it arrives everywhere —
+then type-checks both views of `src/` and runs the vectors above on Node 20,
+22 and 24 on Linux, and on Node 22 on Windows and macOS.
 
 `nightly.yml` is a real drift detector rather than the same run on a timer.
-Two foundations move without a commit landing here: the CBOR codec, taken from
-another repository's master, and the `@noble` libraries, which pull requests
-install from the lock file and the nightly installs without one. Either can
-break these tests overnight — the curve library in particular has already done
-it once, by normalising ECDSA's `s` where COSE does not.
+The foundations here — the CBOR codec and the `@noble` libraries — are
+versioned releases, which pull requests install from the lock file and the
+nightly installs without one. A release cut yesterday can break these tests
+overnight — the curve library has already done it once, by normalising ECDSA's
+`s` where COSE does not. Drift in the codec's *unreleased* master belongs to
+the conformance suite below, which builds both implementations from source.
 
 The third badge is the one that matters most and belongs to another repository:
 [MCBORConformanceTests](https://github.com/Vanaheimr/MCBORConformanceTests)

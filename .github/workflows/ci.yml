@@ -31,37 +31,21 @@ jobs:
 
     steps:
 
-      # The two checkouts have to land as siblings, because that is the layout
-      # src/cbor.ts expects: it reaches for ../../MetrologicalCBOR.TS/src
-      # rather than for node_modules, since @vanaheimr/metrological-cbor is not
-      # published yet — and since what this signs has to be what that codec
-      # produces today rather than at its last release. When the package ships,
-      # the second checkout goes away with the import that needs it.
       - uses: actions/checkout@v4
-        with:
-          path: COSE.TS
-
-      - uses: actions/checkout@v4
-        with:
-          repository: Vanaheimr/MetrologicalCBOR.TS
-          path: MetrologicalCBOR.TS
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: COSE.TS/package-lock.json
 
-      # Deliberately no install in MetrologicalCBOR.TS: that library has zero
-      # runtime dependencies and is imported from source, so a bare checkout of
-      # it is everything this needs. If that ever stops being true, it stops
-      # here rather than in somebody's editor.
+      # Everything from the lock file, the CBOR codec included: since
+      # @vanaheimr/metrological-cbor shipped, it arrives here the way it
+      # arrives everywhere. The nightly is what installs without the lock
+      # file, and the conformance suite is what still builds from source.
       - name: Install dependencies
-        working-directory: COSE.TS
         run: npm ci
 
       - name: Type check
-        working-directory: COSE.TS
         run: npm run typecheck
 
       # RFC 9052 C.2.1/C.1.1/C.1.2, RFC 9338 A.2.1, RFC 6979 A.2.5, the
@@ -69,5 +53,4 @@ jobs:
       # the Metrological CBOR specification — every one of them a byte string
       # somebody else published.
       - name: Test against the published vectors
-        working-directory: COSE.TS
         run: npm test

@@ -14,13 +14,14 @@
  * in one place — and it means where the codec comes from is one line rather
  * than a hundred imports.
  *
- * That line currently reaches into a **sibling checkout** rather than into
- * `node_modules`, because `@vanaheimr/metrological-cbor` is not published yet.
- * It is also the arrangement the conformance suite wants: what gets signed
- * there has to be what the codec produces *today*, from source, not what the
- * last release produced. Once the package is published, this becomes
- * `from '@vanaheimr/metrological-cbor'` and a dependency in `package.json`,
- * and nothing else in this repository changes.
+ * That line names the published `@vanaheimr/metrological-cbor`, an ordinary
+ * dependency pinned by the lock file. It was a sibling checkout until the
+ * codec's first release; the one arrangement that still builds both sides
+ * from source is the cross-signing conformance suite, whose job is exactly
+ * that — what it signs has to be what the codec produces *today* — and which
+ * has its own repository and its own checkout layout for it. Here, drift
+ * arrives the way it does for every consumer: as a release, which the nightly
+ * installs the day it appears.
  *
  * The codec is the one from Metrological CBOR, which is a deterministic
  * encoder by default — and that default is wrong here. A COSE message is
@@ -31,11 +32,11 @@
  * where deterministic encoding is what the specification asks for.
  */
 
-export { cbor }        from '../../MetrologicalCBOR.TS/src/index.ts';
-export type { CborValue } from '../../MetrologicalCBOR.TS/src/index.ts';
+export { cbor }        from '@vanaheimr/metrological-cbor';
+export type { CborValue } from '@vanaheimr/metrological-cbor';
 
-import { cbor }        from '../../MetrologicalCBOR.TS/src/index.ts';
-import type { CborValue } from '../../MetrologicalCBOR.TS/src/index.ts';
+import { cbor }        from '@vanaheimr/metrological-cbor';
+import type { CborValue } from '@vanaheimr/metrological-cbor';
 
 
 /** One entry of a CBOR map. */

@@ -1,12 +1,13 @@
 name: Nightly
 
 # The counterpart to ci.yml, and here it is a genuine drift detector rather
-# than the same run on a timer. This repository has two moving foundations it
-# does not pin: the CBOR codec it signs with, which lives in another repository
-# and is taken from its master, and the @noble libraries, which every pull
-# request installs from the lock file. Any of them can break these tests
-# without a single commit landing here, and a push-triggered workflow would
-# only notice the next time somebody happened to push.
+# than the same run on a timer. This repository's foundations — the CBOR
+# codec and the @noble libraries — are versioned npm releases that every pull
+# request installs from the lock file. This job installs them without one, so
+# a release cut yesterday breaks these tests overnight rather than at the
+# next lock file bump. Drift in the codec's *unreleased* master is the
+# cross-signing conformance suite's to catch: that repository builds both
+# implementations from source, which is its job and no longer this one's.
 #
 # Two things worth knowing about scheduled workflows: they only ever run on the
 # default branch, and GitHub disables them after 60 days without any repository
@@ -34,34 +35,20 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-        with:
-          path: COSE.TS
-
-      # The current master of the codec, which is the whole point of the
-      # nightly: a change there that alters one byte of an encoding would
-      # invalidate every signature made over the old bytes, and this is where
-      # that surfaces.
-      - uses: actions/checkout@v4
-        with:
-          repository: Vanaheimr/MetrologicalCBOR.TS
-          path: MetrologicalCBOR.TS
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
 
       - name: Install dependencies without the lock file
-        # Catches breakage introduced by new releases of the one runtime
-        # dependency — and of the curve library in particular, where a changed
-        # default has already cost this project a day: @noble/curves normalises
-        # ECDSA's `s` to its low form unless told otherwise, and COSE does not.
-        working-directory: COSE.TS
+        # Catches breakage introduced by new releases of the dependencies —
+        # and of the curve library in particular, where a changed default has
+        # already cost this project a day: @noble/curves normalises ECDSA's
+        # `s` to its low form unless told otherwise, and COSE does not.
         run: npm install
 
       - name: Type check
-        working-directory: COSE.TS
         run: npm run typecheck
 
       - name: Test against the published vectors
-        working-directory: COSE.TS
         run: npm test
