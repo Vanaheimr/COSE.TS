@@ -79,6 +79,29 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  fuzz:
+    name: Fuzz corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # The corpus a pull request runs is what a pull request can afford;
+      # this is the one that runs while nobody is waiting.
+      - name: Run the fuzz suite at nightly depth
+        env:
+          COSE_FUZZ_RUNS: '200000'
+        run: npm run test:fuzz -- --reporter=dot
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

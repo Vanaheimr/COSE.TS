@@ -399,7 +399,15 @@ export function derString(node: Asn1Node, what: string): string {
     if (node.tag === Tag.teletexString)
         return Array.from(node.content, each => String.fromCharCode(each)).join('');
 
-    return new TextDecoder('utf-8', { fatal: true }).decode(node.content);
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(node.content);
+    }
+    catch {
+        // `fatal: true` makes the platform throw its own TypeError, which was
+        // the one untyped escape this reader had — found by the fuzz suite,
+        // and a hostile certificate is exactly who sends invalid UTF-8.
+        throw new CoseError(`${what}: the content is not valid UTF-8`);
+    }
 
 }
 
@@ -409,7 +417,7 @@ function decodeWide(bytes: Uint8Array, width: number, what: string): string {
     if (bytes.length % width !== 0)
         throw new CoseError(`${what}: a ${String(width * 8)}-bit string must be a whole number of characters`);
 
-    const points: number[] = [];
+    let text = '';
 
     for (let index = 0; index < bytes.length; index += width) {
 
@@ -418,11 +426,19 @@ function decodeWide(bytes: Uint8Array, width: number, what: string): string {
         for (let byte = 0; byte < width; byte++)
             point = point * 256 + bytes[index + byte]!;
 
-        points.push(point);
+        // Refused rather than passed to the platform: String.fromCodePoint
+        // answers a value beyond U+10FFFF with a RangeError of its own, which
+        // would be an untyped escape. (Appending one character at a time is
+        // deliberate too — a spread over the whole array is a stack overflow
+        // waiting for a large enough string.)
+        if (point > 0x10FFFF)
+            throw new CoseError(`${what}: 0x${point.toString(16)} is not a Unicode code point`);
+
+        text += String.fromCodePoint(point);
 
     }
 
-    return String.fromCodePoint(...points);
+    return text;
 
 }
 

@@ -67,6 +67,7 @@
         "lint:fix": "eslint . --fix",
         "test": "vitest run",
         "test:coverage": "vitest run --coverage",
+        "test:fuzz": "vitest run tests/fuzz",
         "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
         "verify": "npm run typecheck && npm run lint && npm run build && npm run test && npm run docs:api",
         "prepublishOnly": "npm run verify"
@@ -84,6 +85,7 @@
         "@vitest/coverage-v8": "^4.1.11",
         "esbuild": "^0.28.2",
         "eslint": "^10.9.0",
+        "fast-check": "^4.9.0",
         "globals": "^17.11.0",
         "tsup": "^8.5.1",
         "tsx": "^4.23.12",
