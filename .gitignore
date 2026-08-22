@@ -4,3 +4,7 @@ docs/api/
 coverage/
 *.tsbuildinfo
 .eslintcache
+
+# What `npm pack` leaves behind: docs/releasing.md rehearses the tarball
+# before every publish, and the rehearsal prop is not for the repository.
+*.tgz
