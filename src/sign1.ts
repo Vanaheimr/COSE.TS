@@ -38,6 +38,7 @@ import { CoseHeaders,
          verifyCriticalHeaderParameters }    from './headers.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
+import { canonicalizePayload }               from './payload.ts';
 import { resolveAlgorithm, resolvePayload }  from './resolve.ts';
 import { CoseSignature }                     from './signature.ts';
 import { CoseCertificateChain,
@@ -72,6 +73,14 @@ export interface Sign1Options {
 
     /** Whether to wrap the message within CBOR tag 18. Defaults to true. */
     readonly tagged?:         boolean;
+
+    /**
+     * Whether to rewrite a CBOR payload in the deterministic encoding of
+     * RFC 8949 Section 4.2.1 before signing it, so that a receiver who parses
+     * and re-serializes the record arrives at the very bytes the signature
+     * covers. Defaults to true. A payload that is not CBOR is signed as it is.
+     */
+    readonly canonicalizePayload?:  boolean;
 
 }
 
@@ -335,14 +344,25 @@ export class CoseSign1 {
 
         const protectedBytes = protectedHeader.toProtectedBytes();
 
+        const signed         = options.canonicalizePayload === false
+                                   ? payload
+                                   : canonicalizePayload(payload);
+
+        // A detached payload is the caller's to transmit, so it is the
+        // caller's bytes a verifier will be handed. Quietly signing a
+        // different spelling of them would produce a message that can never
+        // verify, and the only hint would be a failed check somewhere else.
+        if (options.detachPayload === true && !bytesEqual(signed, payload))
+            throw new CoseError('The payload of this COSE_Sign1 message is detached, so canonicalizing it here would sign bytes that nobody holds: canonicalize the payload yourself (canonicalizePayload), sign and transmit those, or pass canonicalizePayload: false to sign the payload exactly as it is!');
+
         const signature = signWith(algorithm,
                                    key.curve,
-                                   CoseSign1.toBeSigned(protectedBytes, payload, options.externalAad ?? null),
+                                   CoseSign1.toBeSigned(protectedBytes, signed, options.externalAad ?? null),
                                    key.privateKeyBytes());
 
         return new CoseSign1(protectedBytes,
                              unprotectedHeader,
-                             options.detachPayload === true ? null : payload,
+                             options.detachPayload === true ? null : signed,
                              signature,
                              options.tagged ?? true);
 

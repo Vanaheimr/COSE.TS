@@ -35,10 +35,12 @@
 
 import { signWith }                          from './algorithm.ts';
 import type { CoseAlgorithm }                from './algorithm.ts';
-import { cbor, decode, encode, NO_BYTES }    from './cbor.ts';
+import { bytesEqual, cbor, decode,
+         encode, NO_BYTES }                  from './cbor.ts';
 import type { CborValue }                    from './cbor.ts';
 import { CoseError, notVerified }            from './errors.ts';
 import type { Verification }                 from './errors.ts';
+import { canonicalizePayload }               from './payload.ts';
 import { CoseHeaders,
          verifyCriticalHeaderParameters }    from './headers.ts';
 import type { CoseKey }                      from './key.ts';
@@ -162,10 +164,20 @@ export class CoseSign {
                        key:     CoseKey,
                        options: Sign1Options = {}): CoseSign {
 
+        const signed = options.canonicalizePayload === false
+                           ? payload
+                           : canonicalizePayload(payload);
+
+        // A detached payload is the caller's to transmit, and every further
+        // signer added later signs those very same bytes. Rewriting them here
+        // would sign a spelling nobody else has.
+        if (options.detachPayload === true && !bytesEqual(signed, payload))
+            throw new CoseError('The payload of this COSE_Sign message is detached, so canonicalizing it here would sign bytes that nobody holds: canonicalize the payload yourself (canonicalizePayload), sign and transmit those, or pass canonicalizePayload: false to sign the payload exactly as it is!');
+
         return new CoseSign(NO_BYTES,
                             CoseHeaders.empty,
-                            options.detachPayload === true ? null : payload,
-                            [signatureOver(NO_BYTES, payload, key, options)],
+                            options.detachPayload === true ? null : signed,
+                            [signatureOver(NO_BYTES, signed, key, options)],
                             options.tagged ?? true);
 
     }

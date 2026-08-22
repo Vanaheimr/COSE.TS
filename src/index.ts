@@ -60,6 +60,9 @@ export type { Decryption, NotVerified,
 
 export { bytesEqual, cbor, DETERMINISTIC,
          NO_BYTES, PRESERVE }                       from './cbor.ts';
+
+export { canonicalizePayload,
+         isCanonicalPayload }                       from './payload.ts';
 export type { CborEntry, CborValue }                from './cbor.ts';
 
 export { HeaderLabel, headerLabelName,

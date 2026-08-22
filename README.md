@@ -389,6 +389,18 @@ published example recomputable — and it matters rather more for a device with
 no dependable source of randomness, since a repeated nonce hands over the
 private key.
 
+The **payload** is rewritten in the deterministic encoding of
+[RFC 8949](https://www.rfc-editor.org/rfc/rfc8949) §4.2.1 before it is
+signed, unless `canonicalizePayload: false` says otherwise. A COSE payload is
+an opaque byte string, so a signature covers one *spelling* of a record rather
+than the record — and a receiver that decodes it and encodes it again
+produces the deterministic spelling. Where the signer wrote a different one,
+that receiver forwards a signature that no longer verifies, having altered
+nothing, and the failure looks exactly like tampering. A payload that is not
+CBOR is signed as it is; a *detached* payload that canonicalizing would change
+is refused, because the message does not carry it and the verifier would be
+handed the caller's own bytes.
+
 Whenever the signing key does not live in this process, `toBeSigned()` hands
 out exactly the byte string that has to be signed.
 
