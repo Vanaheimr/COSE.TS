@@ -66,42 +66,24 @@ function browserBundle(): string {
 /** The bundle, loaded into a context holding only what a browser guarantees. */
 function inABrowser(): Record<string, unknown> {
 
+    // A fresh context brings the entire ECMAScript standard library as its
+    // own realm's intrinsics, so handing in the host's Object, Uint8Array and
+    // friends would add nothing — it would *shadow* them with foreign twins.
+    // That is not a browser made stricter, it is two realms mixed: an object
+    // literal born inside the context carries the context's Object.prototype,
+    // and a library that checks options for being plain objects against the
+    // shadowing host Object — @noble/hashes does since 2.4 — sees an
+    // impostor and refuses to load. The sandbox therefore holds only what a
+    // browser adds beyond bare ECMAScript and this library may use, plus the
+    // CommonJS scaffold the bundle is loaded as.
     const sandbox: Record<string, unknown> = {
-        // What a browser has, and this library may use.
         TextEncoder,
         TextDecoder,
-        Uint8Array,
-        DataView,
-        ArrayBuffer,
-        BigInt,
-        Math,
-        JSON,
-        Object,
-        Array,
-        String,
-        Number,
-        Boolean,
-        Error,
-        TypeError,
-        RangeError,
-        Map,
-        Set,
-        Symbol,
-        Reflect,
-        Proxy,
-        RegExp,
-        Function,
-        Promise,
-        Intl,
-        // Filled in below: a sandbox has to be able to refer to itself.
-        globalThis: undefined,
 
         // What it is being loaded as.
         module:  { exports: {} },
         exports: {},
     };
-
-    sandbox.globalThis = sandbox;
 
     const context = createContext(sandbox);
 
