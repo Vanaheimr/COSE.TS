@@ -73,25 +73,25 @@
         "prepublishOnly": "npm run verify"
     },
     "dependencies": {
-        "@noble/ciphers": "^2.3.0",
-        "@noble/curves": "^2.3.0",
-        "@noble/hashes": "^2.3.0",
-        "@noble/post-quantum": "^0.7.0",
-        "@vanaheimr/metrological-cbor": "^0.10.0"
+        "@noble/ciphers": "^2.4.0",
+        "@noble/curves": "^2.4.0",
+        "@noble/hashes": "^2.4.0",
+        "@noble/post-quantum": "^0.7.1",
+        "@vanaheimr/metrological-cbor": "^0.11.0"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@types/node": "^26.2.0",
-        "@vitest/coverage-v8": "^4.1.11",
+        "@vitest/coverage-v8": "^5.0.0",
         "esbuild": "^0.28.2",
-        "eslint": "^10.9.0",
+        "eslint": "^10.10.0",
         "fast-check": "^4.9.0",
-        "globals": "^17.11.0",
+        "globals": "^17.12.0",
         "tsup": "^8.5.1",
-        "tsx": "^4.23.12",
+        "tsx": "^4.23.13",
         "typedoc": "^0.28.20",
         "typescript": "^6.0.3",
-        "typescript-eslint": "^8.67.0",
-        "vitest": "^4.1.10"
+        "typescript-eslint": "^8.70.0",
+        "vitest": "^5.0.0"
     }
 }
