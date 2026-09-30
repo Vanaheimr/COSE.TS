@@ -532,6 +532,26 @@ What this is for is the integrity of measurement data along the rest of the
 chain, and for the conversation about what a digital, signed SI quantity should
 look like.
 
+
+## Publishing
+
+```
+npm version 0.9.0 --no-git-tag-version
+git commit -a
+git tag -s v0.9.0 -m "v0.9.0"
+git push origin master v0.9.0
+git push git1 master v0.9.0
+git push git2 master v0.9.0
+
+npm run verify
+npm pack --dry-run
+npm pack
+npm login
+npm whoami
+npm publish
+```
+
+
 ## License
 
 [Apache License 2.0](LICENSE.md), matching both reference implementations.
