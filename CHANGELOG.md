@@ -6,7 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Until 1.0.0 the public API may change in minor releases.
 
-## [0.1.0] — 2026-08-22
+## [0.10.0] — 2026-10-25
+
+A minor without a single changed line of library code, and deliberately so.
+The CBOR codec underneath moves from `^0.10.0` to `^0.11.1`, and under 0.x
+npm treats that as a major step: a range of `^0.10.0` will never admit 0.11.
+The codec is part of this package's public surface — `cbor` and `CborValue`
+are re-exported from it, and the `CborError` it throws on malformed input
+passes through `parse` unchanged — so a patch release would have reached
+every `^0.9.0` installer automatically and could have left one who also
+depends on the codec directly holding two copies of it. Errors thrown by one
+copy are not `instanceof` the other's `CborError`, and that is exactly the
+check a careful caller writes around `parse`. A minor makes that step a
+choice rather than a surprise. There was nothing for a patch to deliver
+instead: no defect in the library was fixed.
+
+### Changed
+
+- **The codec is `@vanaheimr/metrological-cbor` 0.11.1.** Its CBOR layer is
+  unchanged between 0.10.0 and 0.11.1, so every message, key and structure
+  this library writes is byte for byte what 0.9.0 wrote, and every signature
+  0.9.0 made still verifies. The codec's own breaking change in 0.11.0 — JSON
+  conversion no longer guesses which strings are readings — concerns an API
+  this package does not re-export. **If you depend on the codec directly as
+  well, move that dependency to `^0.11.1` alongside this upgrade**, so that
+  npm installs one copy and `CborError` stays one class.
+- **The cryptography floor rises**: `@noble/hashes`, `@noble/ciphers` and
+  `@noble/curves` to 2.4.0, `@noble/post-quantum` to 0.7.1. Fresh installs
+  of 0.9.0 already resolved these through their caret ranges; the new floor
+  says what this release was tested against.
+
+### Development
+
+None of this reaches an installer: the published package has the same
+files, the same build shape and no new runtime dependency.
+
+- **The browser-bundle test runs in one realm.** It used to hand its `vm`
+  sandbox the host's `Object`, `Uint8Array` and two dozen other intrinsics,
+  which shadowed the sandbox's own with foreign twins; `@noble/hashes` 2.4
+  checks its option defaults for being plain objects and refused to load
+  there. A browser has one realm, and the sandbox now does too — which also
+  makes the test a truer stand-in for a browser than it was.
+- **Two advisories in the development toolchain are closed**: `source-map-js`
+  to 1.2.2 (GHSA-68fv-2mgg-jv7q, reached through tsup and the coverage
+  provider) and `markdown-it` to 14.3.3 (GHSA-vfgh-jcmw-g37q and
+  GHSA-gfr2-rv44-r23c, reached through typedoc).
+- **The toolchain moves to current majors**: tsup 9, vitest and its coverage
+  provider 5.0.5, with eslint, typescript-eslint, globals and tsx in minors.
+  TypeScript stays at 6.0 until typedoc supports 7.
+- **The workflows run on actions that run on Node 24** — checkout, setup-node
+  and upload-artifact at v7 — instead of being force-migrated with an
+  annotation on every run.
+- `update.sh` scripts the dependency sweep, and `*.tgz` is ignored, since the
+  release rehearsal in `docs/releasing.md` leaves one behind every time.
+
+## [0.9.0] — 2026-08-22
 
 **The first version published to npm**, on 2026-08-22 — by hand, with
 multi-factor authentication and a maintainer at the keyboard, as every release
