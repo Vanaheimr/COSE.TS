@@ -536,12 +536,12 @@ look like.
 ## Publishing
 
 ```
-npm version 0.9.0 --no-git-tag-version
+npm version 0.10.0 --no-git-tag-version
 git commit -a
-git tag -s v0.9.0 -m "v0.9.0"
-git push origin master v0.9.0
-git push git1 master v0.9.0
-git push git2 master v0.9.0
+git tag -s v0.10.0 -m "v0.10.0"
+git push origin master v0.10.0
+git push git1 master v0.10.0
+git push git2 master v0.10.0
 
 npm run verify
 npm pack --dry-run
