@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Until 1.0.0 the public API may change in minor releases.
 
+## [Unreleased]
+
+### Changed
+
+- **The licence file is `LICENSE` again, without an extension.** The Apache
+  2.0 text is plain text, not Markdown, and rendered as Markdown its indented
+  paragraphs turn into code blocks. `LICENSE` is also what the Apache
+  Software Foundation and MetrologicalCBOR.TS use. The text is unchanged, and
+  npm includes a `LICENSE` file in a package whatever `files` says.
+
 ## [0.10.0] — 2026-10-25
 
 A minor without a single changed line of library code, and deliberately so.

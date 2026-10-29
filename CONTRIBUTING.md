@@ -104,4 +104,4 @@ which also says what counts as one here.
 ## License
 
 By contributing you agree that your contributions are licensed under the
-Apache License 2.0, as described in [LICENSE.md](LICENSE.md).
+Apache License 2.0, as described in [LICENSE](LICENSE).

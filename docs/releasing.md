@@ -71,7 +71,7 @@ under `src/` and `tests/`.
 npm pack --dry-run
 ```
 
-Read the file list: `dist/`, README.md, LICENSE.md, NOTICE and CHANGELOG.md,
+Read the file list: `dist/`, README.md, LICENSE, NOTICE and CHANGELOG.md,
 nothing else. 0.1.0 was 55 files and 171 kB packed — 0.8 MB unpacked, most of
 it source maps.
 

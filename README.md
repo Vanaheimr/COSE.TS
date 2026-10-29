@@ -4,7 +4,7 @@
 [![Nightly](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml/badge.svg)](https://github.com/Vanaheimr/COSE.TS/actions/workflows/nightly.yml)
 [![npm](https://img.shields.io/npm/v/@vanaheimr/cose.svg)](https://www.npmjs.com/package/@vanaheimr/cose)
 [![Cross-signing](https://img.shields.io/github/actions/workflow/status/Vanaheimr/MCBORConformanceTests/ci.yml?branch=master&label=cross-signing%20vs.%20Styx)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **CBOR Object Signing and Encryption** ([RFC 9052](https://www.rfc-editor.org/rfc/rfc9052))
 in TypeScript, built on the CBOR codec of
@@ -554,4 +554,4 @@ npm publish
 
 ## License
 
-[Apache License 2.0](LICENSE.md), matching both reference implementations.
+[Apache License 2.0](LICENSE), matching both reference implementations.
