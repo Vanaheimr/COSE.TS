@@ -93,8 +93,8 @@ for it.
   (CBOR tags 17 and 97), with the HMAC algorithms of
   [RFC 9053 §3.1](https://www.rfc-editor.org/rfc/rfc9053#section-3.1). Not a
   small signature. See below.
-- **`CoseEncrypt0` / `CoseEncrypt`** — content encrypted with AES-GCM (CBOR
-  tags 16 and 96).
+- **`CoseEncrypt0` / `CoseEncrypt`** — content encrypted with AES-GCM or
+  ChaCha20/Poly1305 (CBOR tags 16 and 96).
 - **`CoseRecipient`** — how a content key reaches a party: `direct`, AES key
   wrap ([RFC 3394](https://www.rfc-editor.org/rfc/rfc3394)), and ECDH-ES with
   HKDF ([RFC 9053 §6.3](https://www.rfc-editor.org/rfc/rfc9053#section-6.3)),
@@ -293,8 +293,10 @@ says that to everybody rather than to the recipient alone.
 
 `CoseEncrypt0.encrypt(plaintext, key, { iv })` and
 `CoseEncrypt.encrypt(plaintext, contentKey, recipients, { iv })`, with AES-GCM
-in all three key widths. Three things here differ from everything else in this
-package, and all three catch people out.
+in all three key widths or with ChaCha20/Poly1305
+([RFC 9053 §4.3](https://www.rfc-editor.org/rfc/rfc9053#section-4.3)). The key
+says which. Three things here differ from everything else in this package, and
+all three catch people out.
 
 **The `Enc_structure` has three elements, not four.** It is
 `[context, protected, external_aad]` — no payload. The payload is what is being
@@ -302,8 +304,8 @@ package, and all three catch people out.
 it, as the AEAD's additional data, and the recipient rebuilds it from the
 message rather than receiving it.
 
-**The authentication tag is not a field.** AES-GCM's 16-byte tag is appended to
-the ciphertext and travels inside the same byte string.
+**The authentication tag is not a field.** The AEAD's 16-byte tag is appended
+to the ciphertext and travels inside the same byte string.
 
 **The nonce is public and must never repeat.** It travels in the `iv` header
 parameter in the clear, and that is fine; using one twice with the same key is
@@ -318,15 +320,24 @@ sent it. AEAD integrity means "whoever holds this key wrote this". RFC 9052
 inside an encrypted envelope is how one gets both — and COSE nests, so both can
 travel at once.
 
-Not implemented: AES-CCM and ChaCha20/Poly1305 — scope rather than judgement,
-in both cases. CCM is eight registered variants of nonce and tag width (64-bit
-tags included, a constrained-radio economy), serving a world this library does
-not live in — and since the crypto moved to `@noble/ciphers`, a primitive
-without a supplier: noble deliberately ships no CCM, and `node:crypto`, which
-did, is exactly what the browser support removed. ChaCha20/Poly1305 earns its
-keep where there is no AES hardware, which nothing here asked for. And Styx
-carries neither, so the cross-signing suite would have nothing to compare
-them against. Also absent: the `COSE_Encrypt` recipient routes listed above.
+**ChaCha20/Poly1305 is there for hardware without AES instructions.** A
+charging station's controller often has none, and a software AES there is
+slow or leaks its key through cache timing; ChaCha20 is additions, rotations
+and XORs, constant-time by construction. EVQI Transport names it beside
+AES-GCM for that reason, which is what turned it from "nothing here asked for"
+into something that was. Within COSE it is shaped like `A256GCM` on purpose —
+one 256-bit key, a 96-bit nonce, the 128-bit tag appended — so everything
+above applies unchanged, the nonce rule included: Poly1305's one-time key is
+derived from the nonce, and a nonce used twice under one key hands over the
+means to forge.
+
+Not implemented: AES-CCM — scope rather than judgement. It is eight registered
+variants of nonce and tag width (64-bit tags included, a constrained-radio
+economy), serving a world this library does not live in — and since the crypto
+moved to `@noble/ciphers`, a primitive without a supplier: noble deliberately
+ships no CCM, and `node:crypto`, which did, is exactly what the browser support
+removed. Styx does not carry it either, so the cross-signing suite would have
+nothing to compare it against.
 
 #### The symmetric key
 
@@ -395,8 +406,8 @@ Not implemented, deliberately in every case: `COSE_Countersignature0`, the
 abbreviated countersignature of RFC 9338 — a bare signature with no header
 buckets of its own, so which algorithm made it and which key checks it travel
 outside the message, by agreement, which is the opposite direction from
-everything else here; AES-CBC-MAC, argued in the MAC chapter above; AES-CCM
-and ChaCha20/Poly1305, argued in the encryption chapter above; the
+everything else here; AES-CBC-MAC, argued in the MAC chapter above; AES-CCM,
+argued in the encryption chapter above; the
 static-static ECDH variants, argued with ECDH-ES above; and the `x5bag` and
 `x5u` header parameters — a bag is an
 unordered heap with no path to follow, and a URI is a fetch, which a signature
@@ -512,6 +523,10 @@ uses — same RFCs, same appendices, same transcription:
   key, the nonce — and every one of those is checked, not merely the final
   bytes: a message that comes out right by way of a wrong additional-data
   structure stops coming out right the moment anything changes.
+- **ChaCha20/Poly1305** — the AEAD example of RFC 8439 §2.8.2 for the
+  primitive, and the working group's two ChaCha20/Poly1305 examples, a
+  `COSE_Encrypt0` and a `COSE_Encrypt` with a `direct` recipient, each with the
+  `Enc_structure` it publishes.
 - **The working group's ECDH-ES examples** — 31 of them, on P-256, P-521 and
   X25519, direct and wrapped, under AES-GCM and HMAC. Each is checked at every
   step it publishes: the agreed secret from both sides, the encoded

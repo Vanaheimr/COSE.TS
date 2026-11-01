@@ -6,7 +6,8 @@
 
 /**
  * The encrypted COSE structures [RFC 9052, Section 5]: `COSE_Encrypt0`
- * (CBOR tag 16) and `COSE_Encrypt` (CBOR tag 96), with AES-GCM.
+ * (CBOR tag 16) and `COSE_Encrypt` (CBOR tag 96), with AES-GCM and
+ * ChaCha20/Poly1305 [RFC 9053, Sections 4.1 and 4.3].
  *
  * ```
  * COSE_Encrypt0 = [ Headers, ciphertext : bstr / nil ]
@@ -22,7 +23,7 @@
  * merely *authenticated* alongside it. It becomes the AEAD's additional data,
  * so the recipient rebuilds it from the message rather than receiving it.
  *
- * **The authentication tag is not a field.** AES-GCM's 16-byte tag is appended
+ * **The authentication tag is not a field.** The AEAD's 16-byte tag is appended
  * to the ciphertext and travels inside the same byte string. An implementation
  * giving it a field of its own interoperates with nothing.
  *
@@ -43,6 +44,7 @@
 
 import { aesGcmDecrypt, aesGcmEncrypt,
          GCM_NONCE_SIZE }                    from './aes.ts';
+import { chachaPolyDecrypt, chachaPolyEncrypt } from './chacha.ts';
 import { algorithmToCbor }                   from './algorithm.ts';
 import type { CoseAlgorithm }                from './algorithm.ts';
 import { cbor, decode, encode, NO_BYTES }    from './cbor.ts';
@@ -229,7 +231,7 @@ abstract class CoseEncryptedBase {
         if (stated !== null && stated.id !== algorithm.id)
             return notDecrypted(`This COSE message was encrypted with the algorithm '${stated.name}', but the algorithm '${algorithm.name}' was expected!`);
 
-        if (algorithm.family !== 'aesgcm')
+        if (!isContentEncryption(algorithm))
             return notDecrypted(`The COSE algorithm '${algorithm.name}' is not a content encryption algorithm this implementation supports!`);
 
         if (algorithm.keySize !== null && contentKey.length !== algorithm.keySize)
@@ -248,7 +250,7 @@ abstract class CoseEncryptedBase {
             return notDecrypted('This COSE message carries no initialization vector!');
 
         if (nonce.length !== GCM_NONCE_SIZE)
-            return notDecrypted(`AES-GCM within COSE uses a ${String(GCM_NONCE_SIZE)}-byte nonce, but this message carries a ${String(nonce.length)}-byte one!`);
+            return notDecrypted(`${algorithm.name} within COSE uses a ${String(GCM_NONCE_SIZE)}-byte nonce, but this message carries a ${String(nonce.length)}-byte one!`);
 
         const carried = this.ciphertext;
         const given   = options.detachedCiphertext ?? null;
@@ -261,10 +263,10 @@ abstract class CoseEncryptedBase {
         if (body === null)
             return notDecrypted('This COSE message carries a detached ciphertext, which has to be supplied in order to decrypt it!');
 
-        const plaintext = aesGcmDecrypt(contentKey, nonce, body,
-                                        encStructure(context,
-                                                     this.protectedHeaderBytes,
-                                                     options.externalAad ?? null));
+        const plaintext = aeadDecrypt(algorithm, contentKey, nonce, body,
+                                      encStructure(context,
+                                                   this.protectedHeaderBytes,
+                                                   options.externalAad ?? null));
 
         return plaintext === null
                    ? notDecrypted('The ciphertext does not authenticate under this key: it was altered, or the key, the nonce or the additional data is not the right one!')
@@ -299,7 +301,7 @@ export class CoseEncrypt0 extends CoseEncryptedBase {
                           key:       CoseKey,
                           options:   EncryptOptions): CoseEncrypt0 {
 
-        const algorithm = requireAesGcm(key);
+        const algorithm = requireContentEncryption(key);
 
         const keyIdentifier = options.keyIdentifier === undefined
                                   ? key.keyIdentifier
@@ -326,17 +328,18 @@ export class CoseEncrypt0 extends CoseEncryptedBase {
                                      unprotectedHeader:  CoseHeaders | null,
                                      options:            EncryptOptions): CoseEncrypt0 {
 
-        const algorithm = protectedHeader.algorithm ?? requireAesGcm(key);
+        const algorithm = protectedHeader.algorithm ?? requireContentEncryption(key);
 
         requireUsable(key, algorithm);
 
         const protectedBytes = protectedHeader.toProtectedBytes();
 
-        const ciphertext = aesGcmEncrypt(key.privateKeyBytes(),
-                                         options.iv,
-                                         plaintext,
-                                         encStructure(ENCRYPT0_CONTEXT, protectedBytes,
-                                                      options.externalAad ?? null));
+        const ciphertext = aeadEncrypt(algorithm,
+                                       key.privateKeyBytes(),
+                                       options.iv,
+                                       plaintext,
+                                       encStructure(ENCRYPT0_CONTEXT, protectedBytes,
+                                                    options.externalAad ?? null));
 
         return new CoseEncrypt0(protectedBytes,
                                 unprotectedHeader,
@@ -445,7 +448,7 @@ export class CoseEncrypt extends CoseEncryptedBase {
                           recipients:  readonly CoseRecipient[],
                           options:     EncryptOptions): CoseEncrypt {
 
-        const algorithm      = requireAesGcm(contentKey);
+        const algorithm      = requireContentEncryption(contentKey);
 
         requireUsable(contentKey, algorithm);
         requireRecipientsCompatible(recipients, 'A COSE_Encrypt message');
@@ -456,10 +459,11 @@ export class CoseEncrypt extends CoseEncryptedBase {
 
         const protectedBytes  = protectedHeader.toProtectedBytes();
 
-        const ciphertext = aesGcmEncrypt(contentKey.privateKeyBytes(),
-                                         options.iv,
-                                         plaintext,
-                                         encStructure(ENCRYPT_CONTEXT, protectedBytes,
+        const ciphertext = aeadEncrypt(algorithm,
+                                       contentKey.privateKeyBytes(),
+                                       options.iv,
+                                       plaintext,
+                                       encStructure(ENCRYPT_CONTEXT, protectedBytes,
                                                       options.externalAad ?? null));
 
         return new CoseEncrypt(protectedBytes,
@@ -613,13 +617,49 @@ function ciphertextOf(value: CborValue, what: string): Uint8Array | null {
 }
 
 
-/** The AES-GCM algorithm a key names, refusing a key that names something else. */
-function requireAesGcm(key: CoseKey): CoseAlgorithm {
+/** Whether an algorithm is one of the two AEADs this package encrypts content with. */
+export const isContentEncryption = (algorithm: CoseAlgorithm): boolean =>
+    algorithm.family === 'aesgcm' || algorithm.family === 'chacha20poly1305';
+
+
+/**
+ * Encrypt with whichever AEAD the algorithm names. Both take a 96-bit nonce,
+ * append a 128-bit tag and authenticate the `Enc_structure` alongside, so the
+ * structures above need not know which of the two they carry.
+ */
+function aeadEncrypt(algorithm:       CoseAlgorithm,
+                     key:             Uint8Array,
+                     nonce:           Uint8Array,
+                     plaintext:       Uint8Array,
+                     additionalData:  Uint8Array): Uint8Array {
+
+    return algorithm.family === 'chacha20poly1305'
+               ? chachaPolyEncrypt(key, nonce, plaintext, additionalData)
+               : aesGcmEncrypt    (key, nonce, plaintext, additionalData);
+
+}
+
+
+function aeadDecrypt(algorithm:       CoseAlgorithm,
+                     key:             Uint8Array,
+                     nonce:           Uint8Array,
+                     ciphertext:      Uint8Array,
+                     additionalData:  Uint8Array): Uint8Array | null {
+
+    return algorithm.family === 'chacha20poly1305'
+               ? chachaPolyDecrypt(key, nonce, ciphertext, additionalData)
+               : aesGcmDecrypt    (key, nonce, ciphertext, additionalData);
+
+}
+
+
+/** The content encryption algorithm a key names, refusing a key that names something else. */
+function requireContentEncryption(key: CoseKey): CoseAlgorithm {
 
     if (key.algorithm === null)
         throw new CoseError('An encrypted COSE message needs a content encryption algorithm: either on the key or within the protected header bucket!');
 
-    if (key.algorithm.family !== 'aesgcm')
+    if (!isContentEncryption(key.algorithm))
         throw new CoseError(`The COSE algorithm '${key.algorithm.name}' is not a content encryption algorithm this implementation supports!`);
 
     return key.algorithm;
@@ -637,7 +677,7 @@ function requireAesGcm(key: CoseKey): CoseAlgorithm {
  */
 function requireUsable(key: CoseKey, algorithm: CoseAlgorithm): void {
 
-    if (algorithm.family !== 'aesgcm')
+    if (!isContentEncryption(algorithm))
         throw new CoseError(`The COSE algorithm '${algorithm.name}' is not a content encryption algorithm this implementation supports!`);
 
     if (key.keyType !== KEY_TYPE_SYMMETRIC)

@@ -31,6 +31,17 @@ Until 1.0.0 the public API may change in minor releases.
   P-256 and P-320, P-384 and secp256k1, with and without salt and party
   information: they wrote identical bytes in all 24 cases, each opening the
   other's. The static-static variants are not implemented.
+- **ChaCha20/Poly1305** ([RFC 9053, Section 4.3](https://www.rfc-editor.org/rfc/rfc9053#section-4.3)),
+  algorithm 24, as the second content encryption algorithm beside AES-GCM:
+  `CoseEncrypt0` and `CoseEncrypt` encrypt with whichever AEAD the key names,
+  and an ECDH-ES recipient agrees a 256-bit key for it like for any other.
+  It was left out until now for want of a use; EVQI Transport supplies one —
+  charging-station controllers without AES instructions — and names it beside
+  AES-GCM. Pinned against RFC 8439's AEAD example and both ChaCha20/Poly1305
+  examples of the COSE working group, `Enc_structure` included; Styx gained
+  the same at the same time. AES-CCM remains out, for the reasons the README
+  gives. `chachaPolyEncrypt` and `chachaPolyDecrypt` are exported beside the
+  AES-GCM pair.
 - **The ECDH primitives are exported**: `ecdhSharedSecret`, `kdfContext`,
   `hkdfDerive`, `isEcdhCurve` and `montgomeryPublicKeyFor`, for whoever needs
   to check an intermediate against an implementation of their own.

@@ -17,7 +17,8 @@
  *
  * What is implemented: `COSE_Sign1` (tag 18) and `COSE_Sign` (tag 98);
  * `COSE_Mac0` (tag 17) and `COSE_Mac` (tag 97) with HMAC; `COSE_Encrypt0`
- * (tag 16) and `COSE_Encrypt` (tag 96) with AES-GCM; recipient structures
+ * (tag 16) and `COSE_Encrypt` (tag 96) with AES-GCM and ChaCha20/Poly1305;
+ * recipient structures
  * carrying a content key by `direct`, by AES key wrap, or by ECDH-ES with
  * HKDF — directly or wrapped — on the EC2 curves, X25519 and X448; the version 2
  * countersignatures of RFC 9338; COSE keys of key type EC2, OKP, AKP and
@@ -39,12 +40,10 @@
  *
  * What is not, each for a reason. AES-CBC-MAC, whose safety within COSE rests
  * on the encoding rather than on the primitive, see RFC 9053 Section 3.2.1.
- * AES-CCM and ChaCha20/Poly1305, as scope rather than judgement: CCM is eight
- * registered variants of nonce and tag width for a constrained-device world
- * this library does not live in — and, since the crypto moved to noble, a
- * primitive without a supplier — while ChaCha earns its keep where there is
- * no AES hardware; Styx carries neither, so the cross-signing suite would
- * have nothing to compare. `COSE_Countersignature0`, a bare signature with no
+ * AES-CCM, as scope rather than judgement: eight registered variants of
+ * nonce and tag width for a constrained-radio world this library does not
+ * live in — and, since the crypto moved to noble, a primitive without a
+ * supplier. `COSE_Countersignature0`, a bare signature with no
  * header buckets of its own: which algorithm made it and which key checks it
  * travel outside the message, by agreement, and everything else here works in
  * the opposite direction. The static-static ECDH variants, whose one
@@ -120,6 +119,10 @@ export { hmac, macTag, tagsEqual }                  from './hmac.ts';
 
 export { aesGcmDecrypt, aesGcmEncrypt, aesKeyUnwrap,
          aesKeyWrap, GCM_NONCE_SIZE, GCM_TAG_SIZE }  from './aes.ts';
+
+export { CHACHA_KEY_SIZE, CHACHA_NONCE_SIZE,
+         CHACHA_TAG_SIZE, chachaPolyDecrypt,
+         chachaPolyEncrypt }                        from './chacha.ts';
 
 export { CoseRecipient, keyWrapAlgorithmFor }       from './recipient.ts';
 export type { AgreedRecipient, EcdhRecipientOptions,

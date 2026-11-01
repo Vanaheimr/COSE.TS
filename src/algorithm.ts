@@ -41,7 +41,7 @@ import { macTag, tagsEqual }             from './hmac.ts';
  * implementations meet.
  */
 export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac'
-                            | 'aesgcm' | 'keywrap' | 'direct'
+                            | 'aesgcm' | 'chacha20poly1305' | 'keywrap' | 'direct'
                             | 'ecdh-direct' | 'ecdh-keywrap' | 'none';
 
 
@@ -196,6 +196,12 @@ export const CoseAlgorithms = {
                        { family: 'aesgcm', keySize: 24, tagSize: 16 }),
     A256GCM: algorithm(   3, 'A256GCM', 'AES-GCM mode w/ 256-bit key, 128-bit tag',
                        { family: 'aesgcm', keySize: 32, tagSize: 16 }),
+
+    // ChaCha20/Poly1305 [RFC 9053, Section 4.3; RFC 8439]: the content
+    // encryption algorithm for hardware without AES instructions. One key
+    // width, one nonce width, one tag width — shaped like A256GCM on purpose.
+    ChaCha20Poly1305: algorithm( 24, 'ChaCha20/Poly1305', 'ChaCha20/Poly1305 w/ 256-bit key, 128-bit tag',
+                       { family: 'chacha20poly1305', keySize: 32, tagSize: 16 }),
 
     // AES key wrap [RFC 9053, Section 6.2.1, RFC 3394]. A recipient algorithm:
     // it carries a content key rather than content, and the width named here is

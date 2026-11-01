@@ -650,14 +650,14 @@ function requireAgreementCurve(key: CoseKey, what: string): CoseCurve {
 
 
 /**
- * The width of the key a content algorithm needs, in bytes: what AES-GCM
- * names, and for HMAC the width of its hash — which is what the published
+ * The width of the key a content algorithm needs, in bytes: what AES-GCM or
+ * ChaCha20/Poly1305 names, and for HMAC the width of its hash — which is what the published
  * examples derive for `HMAC 512/512`, and what RFC 9053 Section 3.1 asks an
  * HMAC key to be.
  */
 function contentKeySizeOf(algorithm: CoseAlgorithm): number {
 
-    if (algorithm.family === 'aesgcm' && algorithm.keySize !== null)
+    if ((algorithm.family === 'aesgcm' || algorithm.family === 'chacha20poly1305') && algorithm.keySize !== null)
         return algorithm.keySize;
 
     if (algorithm.family === 'hmac' && algorithm.hash !== null)
