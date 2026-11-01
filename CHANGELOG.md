@@ -8,6 +8,18 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-01
+
+A minor, and under 0.x it would be one for either of its two halves. It
+adds encryption to a public key — ECDH-ES with HKDF, with a recipient that
+can be named by its certificate — and ChaCha20/Poly1305 as the second content
+encryption algorithm. It also reads one thing more strictly than before: a
+certificate thumbprint that names a signature or MAC algorithm instead of a
+hash is refused now. The codec stays at `^0.12.0`, and every message 0.11.0
+wrote, this release writes byte for byte the same. Vanaheimr Styx gained all
+of it at the same time, and the cross-implementation conformance suite holds
+the two to the same bytes, including messages both must refuse.
+
 ### Added
 
 - **ECDH-ES with HKDF** ([RFC 9053, Section 6.3](https://www.rfc-editor.org/rfc/rfc9053#section-6.3)):
@@ -71,6 +83,11 @@ Until 1.0.0 the public API may change in minor releases.
 
 ### Development
 
+- **The certificate corpus carries key-agreement certificates.** An operator
+  authority on P-256 and two generations of one station's key-agreement
+  certificate, as EVQI Transport §6.8 shapes them, minted by Bouncy Castle in
+  the conformance suite like the rest of the corpus. The `x5t` tests name the
+  receiving key by them rather than by meter certificates standing in.
 - **Dependabot opens pull requests for new releases** of the dependencies
   and the GitHub Actions (`.github/dependabot.yml`). Ranges move only when a
   release lies outside them; the `@noble` libraries arrive together, the
