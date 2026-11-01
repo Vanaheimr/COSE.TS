@@ -8,14 +8,27 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
-## [0.10.1] — 2026-11-01
+## [0.11.0] — 2026-11-01
 
-A patch: the library's code and its dependency ranges are exactly those of
-0.10.0. What an installer receives differently is the name of one file, and
-a development toolchain cleared of an advisory.
+A minor without a changed line of library code, for the reason 0.10.0 was
+one: the CBOR codec underneath moves from `^0.11.1` to `^0.12.0`, which
+under 0.x npm treats as a major step, and the codec is part of this
+package's public surface — `cbor` and `CborValue` are re-exported, and its
+`CborError` passes through `parse`. A patch would have handed the new codec
+to every `^0.10.0` installer unasked. This release was prepared as 0.10.1
+and never tagged; the codec release arrived first, and the number moved
+with it.
 
 ### Changed
 
+- **The codec is `@vanaheimr/metrological-cbor` 0.12.0.** Its only change is
+  in JSON text conversion — a tag 1 outside the years 0001 to 9999 is now
+  refused rather than written in ISO 8601's expanded form — and this package
+  does not re-export that API. The CBOR layer is unchanged, so every message,
+  key and structure written here is byte for byte what 0.10.0 wrote. **If
+  you depend on the codec directly as well, move that dependency to
+  `^0.12.0` alongside this upgrade**, so that npm installs one copy and
+  `CborError` stays one class.
 - **The licence file is `LICENSE` again, without an extension.** The Apache
   2.0 text is plain text, not Markdown, and rendered as Markdown its indented
   paragraphs turn into code blocks. `LICENSE` is also what the Apache

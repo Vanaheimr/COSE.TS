@@ -1,6 +1,6 @@
 {
     "name": "@vanaheimr/cose",
-    "version": "0.10.1",
+    "version": "0.11.0",
     "description": "CBOR Object Signing and Encryption (RFC 9052) in TypeScript, on top of the Metrological CBOR codec — the TypeScript counterpart of Vanaheimr Styx's Illias/COSE.",
     "keywords": [
         "cose",
@@ -77,7 +77,7 @@
         "@noble/curves": "^2.4.0",
         "@noble/hashes": "^2.4.0",
         "@noble/post-quantum": "^0.7.1",
-        "@vanaheimr/metrological-cbor": "^0.11.1"
+        "@vanaheimr/metrological-cbor": "^0.12.0"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
