@@ -58,6 +58,7 @@ import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
 import { CoseRecipient,
          requireRecipientsCompatible }       from './recipient.ts';
+import type { X509Certificate }              from './x509.ts';
 
 
 /** The CBOR tag of a COSE_Encrypt0 message. */
@@ -134,6 +135,14 @@ export interface DecryptOptions {
 
     /** Header parameters the caller processes itself. */
     readonly alsoUnderstood?:     readonly CborValue[];
+
+    /**
+     * The certificate of the key, when the recipient holds one. Recipient
+     * structures that name another certificate by `x5t` are then passed over
+     * rather than tried; see `CoseRecipient.isFor`. Read by `COSE_Encrypt`
+     * only, since `COSE_Encrypt0` has no recipients.
+     */
+    readonly recipientCertificate?: X509Certificate | null;
 
 }
 
@@ -490,7 +499,12 @@ export class CoseEncrypt extends CoseEncryptedBase {
         // ends below, as a recipient list that yielded nothing.
         let tried = 0;
 
+        const certificate = options.recipientCertificate ?? null;
+
         for (const recipient of this.recipients) {
+
+            if (certificate !== null && !recipient.isFor(certificate))
+                continue;
 
             const contentKey = recipient.contentKey(key, options.expectedAlgorithm ?? this.algorithm);
 

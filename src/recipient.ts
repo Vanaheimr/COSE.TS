@@ -74,6 +74,8 @@ import { CoseError }                         from './errors.ts';
 import { CoseHeaders }                       from './headers.ts';
 import { CoseKey, KEY_TYPE_SYMMETRIC }       from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
+import { CoseCertificateHash }               from './x5chain.ts';
+import type { X509Certificate }              from './x509.ts';
 
 
 /** What a party building a recipient structure may choose. */
@@ -104,6 +106,15 @@ export interface EcdhRecipientOptions extends RecipientOptions {
 
     /** The recipient's PartyV information (header parameters -24 to -26). */
     readonly partyV?:   PartyInfo;
+
+    /**
+     * The thumbprint of the recipient's certificate, written as `x5t`
+     * (header parameter 34) [RFC 9360]: the key named by the certificate it
+     * was issued in, rather than by an identifier somebody chose. A recipient
+     * that rotates its keys holds more than one at a time, and the thumbprint
+     * tells it which one this message is for.
+     */
+    readonly certificateThumbprint?:  CoseCertificateHash | null;
 
 }
 
@@ -159,6 +170,53 @@ export class CoseRecipient {
     /** The key identifier, protected bucket first. */
     public get keyIdentifier(): Uint8Array | null {
         return this.protectedHeader.keyIdentifier ?? this.unprotectedHeader.keyIdentifier;
+    }
+
+    /**
+     * The thumbprint of the certificate this recipient names (`x5t`),
+     * protected bucket first.
+     *
+     * Throws when the parameter is present but is not a `COSE_CertHash`.
+     */
+    public get certificateThumbprint(): CoseCertificateHash | null {
+
+        const value = this.parameter(HeaderLabel.x5T);
+
+        if (value === null)
+            return null;
+
+        return CoseCertificateHash.fromCbor(value);
+
+    }
+
+
+    /**
+     * Whether this recipient may be meant for the key of the given
+     * certificate: false when it names a certificate by `x5t` and that is
+     * another one, or when what it names is not a thumbprint at all.
+     *
+     * A recipient that names no certificate may be meant for anybody, and is
+     * tried as before. One that names another certificate is somebody else's —
+     * or the recipient's own, under a key it no longer uses — and trying the
+     * key on it would only ever fail later and less clearly.
+     *
+     * The thumbprint names a certificate; it does not vouch for one. Whether
+     * the certificate belongs to the key it is used with, and whether it may
+     * be trusted, is the caller's to have established.
+     */
+    public isFor(certificate: X509Certificate): boolean {
+
+        let thumbprint: CoseCertificateHash | null;
+
+        try {
+            thumbprint = this.certificateThumbprint;
+        }
+        catch {
+            return false;
+        }
+
+        return thumbprint === null || thumbprint.matches(certificate).verified;
+
     }
 
 
@@ -698,7 +756,8 @@ function protectedFor(algorithm: CoseAlgorithm): Uint8Array {
 /**
  * The unprotected bucket of an ECDH-ES recipient: the ephemeral public key
  * first, then whatever the sender adds to the KDF context, then the key
- * identifier of the recipient key — the order of the published examples.
+ * identifier of the recipient key — the order of the published examples — and
+ * last the thumbprint of the recipient's certificate, which they do not use.
  */
 function ecdhHeadersFor(ephemeralKey:  CoseKey,
                         options:       EcdhRecipientOptions,
@@ -734,6 +793,9 @@ function ecdhHeadersFor(ephemeralKey:  CoseKey,
 
     if (keyIdentifier !== null)
         parameters.push([label(HeaderLabel.keyIdentifier), cbor.bytes(keyIdentifier)]);
+
+    if (options.certificateThumbprint !== undefined && options.certificateThumbprint !== null)
+        parameters.push([label(HeaderLabel.x5T), options.certificateThumbprint.toCbor()]);
 
     return new CoseHeaders(parameters);
 

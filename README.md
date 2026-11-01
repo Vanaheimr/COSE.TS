@@ -284,6 +284,18 @@ same trap as an unpadded `r ‖ s`, one time in 256. An X25519 or X448 public ke
 of small order yields an all-zero secret that anybody can compute, and is
 refused.
 
+**A recipient can be named by its certificate** rather than by a key
+identifier: `certificateThumbprint: CoseCertificateHash.from(theirCertificate)`
+writes it as `x5t` ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)) into
+the recipient structure. A party that rotates its key-agreement keys holds more
+than one at a time, and passing its certificate to `decrypt` or `verify` as
+`recipientCertificate` makes recipient structures that name *another*
+certificate be passed over rather than tried; one that names none is tried as
+before. The thumbprint names a certificate, it does not vouch for one — that
+the certificate is valid, trusted and belongs to the key in hand is the
+caller's to have checked. EVQI Transport §6.8 addresses ECDH-ES recipients
+this way.
+
 Not implemented: the static-static variants (ECDH-SS), in which the sender
 agrees the key from a long-lived key of its own. What they add is that the
 recipient learns who sent the message, and a signature inside the envelope

@@ -55,6 +55,7 @@ import { canonicalizePayload }               from './payload.ts';
 import { CoseRecipient,
          requireRecipientsCompatible }       from './recipient.ts';
 import { resolveAlgorithm, resolvePayload }  from './resolve.ts';
+import type { X509Certificate }              from './x509.ts';
 
 
 /** The CBOR tag of a COSE_Mac message. */
@@ -102,6 +103,13 @@ export interface MacVerifyOptions {
 
     /** Header parameters the caller processes itself. */
     readonly alsoUnderstood?:     readonly CborValue[];
+
+    /**
+     * The certificate of the key, when the recipient holds one. Recipient
+     * structures that name another certificate by `x5t` are then passed over
+     * rather than tried; see `CoseRecipient.isFor`.
+     */
+    readonly recipientCertificate?: X509Certificate | null;
 
 }
 
@@ -297,7 +305,12 @@ export class CoseMac {
 
         let tried = 0;
 
+        const certificate = options.recipientCertificate ?? null;
+
         for (const recipient of this.recipients) {
+
+            if (certificate !== null && !recipient.isFor(certificate))
+                continue;
 
             const contentKey = recipient.contentKey(key, algorithm.value);
 

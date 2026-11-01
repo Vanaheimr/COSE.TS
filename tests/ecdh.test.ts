@@ -22,11 +22,13 @@
 
 import { describe, expect, it }  from 'vitest';
 
-import { cbor, CoseAlgorithms, CoseCurves, CoseEncrypt, CoseError,
-         CoseKey, CoseMac, CoseRecipient, curveByName, ecdhSharedSecret,
-         HeaderLabel, isEcdhCurve, kdfContext, label }
+import { cbor, CoseAlgorithms, CoseCertificateHash, CoseCurves, CoseEncrypt,
+         CoseError, CoseHeaders, CoseKey, CoseMac, CoseRecipient, curveByName,
+         ecdhSharedSecret, HeaderLabel, isEcdhCurve, kdfContext, label,
+         NO_BYTES, X509Certificate }
                                  from '../src/index.ts';
 import type { CoseAlgorithm, CoseCurve } from '../src/index.ts';
+import certificates              from './certificate-corpus.json' with { type: 'json' };
 import corpus                    from './ecdh-vectors.json' with { type: 'json' };
 import { hex, unhex }            from './vectors.ts';
 
@@ -393,6 +395,102 @@ describe('ECDH-ES beyond the examples', () => {
 
         // Asked without the content algorithm, a direct recipient derives nothing.
         expect(recipient.contentKey(bob)).toBeNull();
+
+    });
+
+});
+
+
+describe('an ECDH-ES recipient named by its certificate (x5t)', () => {
+
+    const plaintext = new TextEncoder().encode('a command for this station only');
+    const iv        = unhex('C9CF4DF2FE6C632BF7886413');
+
+    const sender    = CoseKey.fromOkpPrivateKey(CoseCurves.X25519, new Uint8Array(32).fill(0x11));
+    const receiver  = CoseKey.fromOkpPrivateKey(CoseCurves.X25519, new Uint8Array(32).fill(0x22));
+
+    // A thumbprint is the hash of a certificate's DER encoding and nothing
+    // more, so any two certificates serve to tell "this one" from "another":
+    // these two stand in for the key-agreement certificate of the recipient
+    // and for somebody else's. Whether a certificate certifies the key it is
+    // used with is for the caller to establish, not for x5t to say.
+    const corpusCertificate = (name: 'meter' | 'strangerMeter'): X509Certificate =>
+        X509Certificate.parse(unhex(certificates.certificates[name]));
+
+    const mine    = corpusCertificate('meter');
+    const another = corpusCertificate('strangerMeter');
+
+    const encryptedFor = (certificate: X509Certificate | null): CoseEncrypt => {
+
+        const { recipient, contentKey } = CoseRecipient.ecdhDirect(receiver.publicKey(), sender, CoseAlgorithms.A128GCM,
+                                              { certificateThumbprint: certificate === null ? null : CoseCertificateHash.from(certificate),
+                                                keyIdentifier: null });
+
+        return CoseEncrypt.parse(CoseEncrypt.encrypt(plaintext, contentKey, [recipient], { iv }).toBytes());
+
+    };
+
+    it('writes the thumbprint as x5t, after the ephemeral key, and reads it back', () => {
+
+        const thumbprint = CoseCertificateHash.from(mine);
+        const message    = encryptedFor(mine);
+        const recipient  = message.recipients[0]!;
+
+        expect(recipient.certificateThumbprint?.algorithm).toBe(CoseAlgorithms.SHA256);
+        expect(hex(recipient.certificateThumbprint!.value)).toBe(hex(thumbprint.value));
+        expect(recipient.keyIdentifier).toBeNull();
+
+        // Label 34, then [-16, h'…'] — SHA-256 by its RFC 9054 identifier.
+        expect(hex(message.toBytes())).toContain(`1822822F5820${hex(thumbprint.value)}`);
+
+    });
+
+    it('opens for the certificate it names', () => {
+
+        const opened = encryptedFor(mine).decrypt(receiver, { recipientCertificate: mine });
+
+        expect(opened.decrypted && new TextDecoder().decode(opened.plaintext)).toBe('a command for this station only');
+
+    });
+
+    it('passes over a recipient that names another certificate, without trying the key', () => {
+
+        const opened = encryptedFor(another).decrypt(receiver, { recipientCertificate: mine });
+
+        expect(opened.decrypted).toBe(false);
+        expect(!opened.decrypted && opened.reason).toMatch(/None of the recipients/u);
+
+    });
+
+    it('changes nothing for a caller who does not say which certificate the key has', () => {
+        expect(encryptedFor(another).decrypt(receiver).decrypted).toBe(true);
+    });
+
+    it('still tries a recipient that names no certificate at all', () => {
+        expect(encryptedFor(null).decrypt(receiver, { recipientCertificate: mine }).decrypted).toBe(true);
+    });
+
+    it('reads an x5t that is not a COSE_CertHash as naming somebody else', () => {
+
+        const { recipient } = CoseRecipient.ecdhDirect(receiver.publicKey(), sender, CoseAlgorithms.A128GCM);
+        const broken        = new CoseRecipient(recipient.protectedHeaderBytes,
+                                                new CoseHeaders([...recipient.unprotectedHeader.parameters,
+                                                                 [label(HeaderLabel.x5T), cbor.bytes(mine.thumbprint('sha256'))]]),
+                                                NO_BYTES);
+
+        expect(() => broken.certificateThumbprint).toThrow(CoseError);
+        expect(broken.isFor(mine)).toBe(false);
+
+    });
+
+    it('selects the recipient in a COSE_Mac the same way', () => {
+
+        const { recipient, contentKey } = CoseRecipient.ecdhDirect(receiver.publicKey(), sender, CoseAlgorithms.HMAC256_256,
+                                              { certificateThumbprint: CoseCertificateHash.from(mine) });
+        const message = CoseMac.parse(CoseMac.create(plaintext, contentKey, [recipient]).toBytes());
+
+        expect(message.verify(receiver, { recipientCertificate: mine }).verified).toBe(true);
+        expect(message.verify(receiver, { recipientCertificate: another }).verified).toBe(false);
 
     });
 

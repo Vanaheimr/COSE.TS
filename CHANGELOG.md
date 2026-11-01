@@ -42,6 +42,15 @@ Until 1.0.0 the public API may change in minor releases.
   group, `Enc_structure` included; Styx gained the same at the same time.
   AES-CCM remains out, for the reasons the README gives. `chachaPolyEncrypt`
   and `chachaPolyDecrypt` are exported beside the AES-GCM pair.
+- **An ECDH-ES recipient can be named by its certificate.** The option
+  `certificateThumbprint` of `CoseRecipient.ecdhDirect` and `ecdhKeyWrap`
+  writes `x5t` ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)) into the
+  recipient structure, and `CoseRecipient.certificateThumbprint` reads it back.
+  `CoseEncrypt.decrypt` and `CoseMac.verify` take a `recipientCertificate`:
+  given one, they pass over recipient structures naming another certificate
+  instead of trying the key on them (`CoseRecipient.isFor`). For a party that
+  rotates its keys and holds several at once — EVQI Transport §6.8. Styx
+  gained the same at the same time.
 - **The ECDH primitives are exported**: `ecdhSharedSecret`, `kdfContext`,
   `hkdfDerive`, `isEcdhCurve` and `montgomeryPublicKeyFor`, for whoever needs
   to check an intermediate against an implementation of their own.
