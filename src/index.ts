@@ -18,7 +18,8 @@
  * What is implemented: `COSE_Sign1` (tag 18) and `COSE_Sign` (tag 98);
  * `COSE_Mac0` (tag 17) and `COSE_Mac` (tag 97) with HMAC; `COSE_Encrypt0`
  * (tag 16) and `COSE_Encrypt` (tag 96) with AES-GCM; recipient structures
- * carrying a content key by `direct` or AES key wrap; the version 2
+ * carrying a content key by `direct`, by AES key wrap, or by ECDH-ES with
+ * HKDF — directly or wrapped — on the EC2 curves, X25519 and X448; the version 2
  * countersignatures of RFC 9338; COSE keys of key type EC2, OKP, AKP and
  * Symmetric with the key thumbprints of RFC 9679; the ECDSA algorithms of
  * RFC 9053 and RFC 9864, EdDSA of RFC 8032 and ML-DSA of RFC 9964; and the
@@ -46,8 +47,10 @@
  * have nothing to compare. `COSE_Countersignature0`, a bare signature with no
  * header buckets of its own: which algorithm made it and which key checks it
  * travel outside the message, by agreement, and everything else here works in
- * the opposite direction. ECDH-based key agreement and the HKDF key
- * derivations, which need COSE_KDF_Context, a structure of its own. And the
+ * the opposite direction. The static-static ECDH variants, whose one
+ * addition — telling the recipient who sent it — a signature inside the
+ * envelope makes to everybody. HKDF over a shared secret without ECDH, which
+ * starts where `direct` already stands. And the
  * `x5bag` and `x5u` header parameters: a bag is an unordered heap with no
  * path to follow, and a URI is a fetch, which a signature library has no
  * business performing.
@@ -119,7 +122,12 @@ export { aesGcmDecrypt, aesGcmEncrypt, aesKeyUnwrap,
          aesKeyWrap, GCM_NONCE_SIZE, GCM_TAG_SIZE }  from './aes.ts';
 
 export { CoseRecipient, keyWrapAlgorithmFor }       from './recipient.ts';
-export type { RecipientOptions }                    from './recipient.ts';
+export type { AgreedRecipient, EcdhRecipientOptions,
+              RecipientOptions }                    from './recipient.ts';
+
+export { ecdhSharedSecret, hkdfDerive, isEcdhCurve,
+         kdfContext, montgomeryPublicKeyFor }        from './ecdh.ts';
+export type { KdfContextParts, PartyInfo }          from './ecdh.ts';
 
 export { COSE_MAC_TAG, CoseMac, MAC_CONTEXT }       from './mac.ts';
 export type { MacOptions, MacVerifyOptions }        from './mac.ts';

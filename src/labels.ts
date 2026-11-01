@@ -59,6 +59,35 @@ export const HeaderLabel = {
     /** A URI naming an X.509 certificate [RFC 9360]. */
     x5U:                    35,
 
+    // The ECDH-ES parameters of a recipient structure [RFC 9053, Section 6.3].
+    // Negative, and that is the registry's way of saying they mean something
+    // only for the algorithm that defines them: label -1 is the ephemeral key
+    // here and nothing at all on a signature.
+
+    /** The sender's ephemeral public key, a COSE_Key [RFC 9053]. */
+    ephemeralKey:           -1,
+
+    /** The HKDF salt [RFC 9053]. */
+    salt:                   -20,
+
+    /** PartyU identity information for the KDF context [RFC 9053]. */
+    partyUIdentity:         -21,
+
+    /** PartyU nonce for the KDF context [RFC 9053]. */
+    partyUNonce:            -22,
+
+    /** PartyU other information for the KDF context [RFC 9053]. */
+    partyUOther:            -23,
+
+    /** PartyV identity information for the KDF context [RFC 9053]. */
+    partyVIdentity:         -24,
+
+    /** PartyV nonce for the KDF context [RFC 9053]. */
+    partyVNonce:            -25,
+
+    /** PartyV other information for the KDF context [RFC 9053]. */
+    partyVOther:            -26,
+
 } as const;
 
 
@@ -88,6 +117,14 @@ export function headerLabelName(value: CborValue): string {
             case 33n: return 'x5chain';
             case 34n: return 'x5t';
             case 35n: return 'x5u';
+            case  -1n: return 'ephemeral key';
+            case -20n: return 'salt';
+            case -21n: return 'PartyU identity';
+            case -22n: return 'PartyU nonce';
+            case -23n: return 'PartyU other';
+            case -24n: return 'PartyV identity';
+            case -25n: return 'PartyV nonce';
+            case -26n: return 'PartyV other';
         }
 
     }

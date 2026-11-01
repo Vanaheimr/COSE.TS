@@ -41,7 +41,8 @@ import { macTag, tagsEqual }             from './hmac.ts';
  * implementations meet.
  */
 export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac'
-                            | 'aesgcm' | 'keywrap' | 'direct' | 'none';
+                            | 'aesgcm' | 'keywrap' | 'direct'
+                            | 'ecdh-direct' | 'ecdh-keywrap' | 'none';
 
 
 /** An algorithm in the COSE registry. */
@@ -212,6 +213,27 @@ export const CoseAlgorithms = {
     // one direct recipient a COSE_Mac0 with extra ceremony.
     direct:  algorithm(  -6, 'direct',  'Direct use of content encryption key (CEK)',
                        { family: 'direct' }),
+
+    // ECDH-ES [RFC 9053, Section 6.3]: a recipient algorithm that needs no
+    // shared secret at all, only the recipient's public key. The sender agrees
+    // a secret with it through a key pair made for this one message, and HKDF
+    // derives a key from that secret. `hash` is HKDF's.
+    //
+    // The direct pair uses the derived key AS the content key, which is why a
+    // message carrying one of them may have only that one recipient. The
+    // key-wrap three use it to wrap the content key, which any number of
+    // recipients can each receive in their own structure; `keySize` is the
+    // width of that key-encryption key, as it is for A128KW.
+    ECDH_ES_HKDF_256: algorithm( -25, 'ECDH-ES + HKDF-256', 'ECDH ES w/ HKDF - generate key directly',
+                       { family: 'ecdh-direct',  hash: 'sha256' }),
+    ECDH_ES_HKDF_512: algorithm( -26, 'ECDH-ES + HKDF-512', 'ECDH ES w/ HKDF - generate key directly',
+                       { family: 'ecdh-direct',  hash: 'sha512' }),
+    ECDH_ES_A128KW:   algorithm( -29, 'ECDH-ES + A128KW',   'ECDH ES w/ HKDF and AES Key Wrap w/ 128-bit key',
+                       { family: 'ecdh-keywrap', hash: 'sha256', keySize: 16 }),
+    ECDH_ES_A192KW:   algorithm( -30, 'ECDH-ES + A192KW',   'ECDH ES w/ HKDF and AES Key Wrap w/ 192-bit key',
+                       { family: 'ecdh-keywrap', hash: 'sha256', keySize: 24 }),
+    ECDH_ES_A256KW:   algorithm( -31, 'ECDH-ES + A256KW',   'ECDH ES w/ HKDF and AES Key Wrap w/ 256-bit key',
+                       { family: 'ecdh-keywrap', hash: 'sha256', keySize: 32 }),
 
     // Digests, which are algorithms in the same registry but never sign.
     SHA256:  algorithm( -16, 'SHA-256', 'SHA-2 256-bit Hash', { hash: 'sha256' }),

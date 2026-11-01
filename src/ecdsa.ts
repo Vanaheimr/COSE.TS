@@ -88,6 +88,7 @@ interface EcdsaCurve {
     verify(signature: Uint8Array, message: Uint8Array, publicKey: Uint8Array,
            options?: { prehash?: boolean; lowS?: boolean }): boolean;
     getPublicKey(privateKey: Uint8Array, isCompressed?: boolean): Uint8Array;
+    getSharedSecret(privateKey: Uint8Array, publicKey: Uint8Array, isCompressed?: boolean): Uint8Array;
     Point: {
         fromBytes(bytes: Uint8Array): { toBytes(isCompressed: boolean): Uint8Array };
     };
@@ -234,5 +235,25 @@ export function isOnCurve(curve: CoseCurve, uncompressed: Uint8Array): boolean {
     catch {
         return false;
     }
+
+}
+
+
+/**
+ * The ECDH shared secret of a private scalar and a public point `04 ‖ x ‖ y`
+ * on an EC2 curve [RFC 9053, Section 6.3.1]: the x coordinate of their
+ * product, as wide as the field.
+ *
+ * Only x, and always padded: a secret that dropped its leading zero octets
+ * would differ from the one the other party computes about one time in 256,
+ * which is the same trap as an unpadded `r ‖ s`. The compressed encoding of
+ * the product is exactly that x behind one octet of parity, so it is taken
+ * from there rather than recomputed.
+ */
+export function ecdhSecret(curve:       CoseCurve,
+                           privateKey:  Uint8Array,
+                           publicKey:   Uint8Array): Uint8Array {
+
+    return implementationOf(curve).getSharedSecret(privateKey, publicKey, true).slice(1);
 
 }

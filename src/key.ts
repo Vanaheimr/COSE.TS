@@ -36,6 +36,7 @@ import { decompressY, digest, isOnCurve,
          publicKeyFor }                       from './ecdsa.ts';
 import type { DigestAlgorithm }               from './ecdsa.ts';
 import { eddsaPublicKeyFor }                  from './eddsa.ts';
+import { isEcdhCurve, montgomeryPublicKeyFor } from './ecdh.ts';
 import { CoseError }                          from './errors.ts';
 import { MLDSA_SEED_SIZE, MLDSA_SIZES,
          mldsaPublicKeyFor }                  from './mldsa.ts';
@@ -239,7 +240,9 @@ export class CoseKey {
     /**
      * An octet key pair from its private key.
      *
-     * There is no `y`: an EdDSA public key is the whole of `x`.
+     * There is no `y`: an EdDSA public key is the whole of `x`, and so is an
+     * X25519 or X448 one. Which of the two computes it follows from the
+     * curve — Ed25519 and X25519 share a field and not a public key.
      */
     public static fromOkpPrivateKey(curve: CoseCurve,
                                     d:     Uint8Array,
@@ -253,7 +256,8 @@ export class CoseKey {
         return new CoseKey({
             ...empty(KEY_TYPE_OKP, parts),
             curveId:  curve.id,
-            x:        eddsaPublicKeyFor(curve, d),
+            x:        isEcdhCurve(curve) ? montgomeryPublicKeyFor(curve, d)
+                                         : eddsaPublicKeyFor(curve, d),
             d,
         });
 

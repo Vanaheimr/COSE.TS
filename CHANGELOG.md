@@ -8,6 +8,33 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **ECDH-ES with HKDF** ([RFC 9053, Section 6.3](https://www.rfc-editor.org/rfc/rfc9053#section-6.3)):
+  encryption and authentication to a party whose public key is all the sender
+  knows. `CoseRecipient.ecdhDirect` agrees the content key itself
+  (`ECDH-ES + HKDF-256`, `+ HKDF-512`) and returns it with the recipient
+  structure; `CoseRecipient.ecdhKeyWrap` agrees a key-encryption key and wraps
+  the content key with it (`ECDH-ES + A128KW`, `+ A192KW`, `+ A256KW`), so
+  that any number of recipients can share a message. `CoseEncrypt.decrypt` and
+  `CoseMac.verify` accept the recipient's private EC2 or OKP key. Every EC2
+  curve this package computes with works, and X25519 and X448, which become
+  real key pairs: `CoseKey.fromOkpPrivateKey` derives their RFC 7748 public
+  keys, and the curve registry gives them their widths. The ephemeral key is
+  the caller's, so nothing draws randomness and every message is
+  reproducible. Salt and PartyU/PartyV information are written and read. A
+  message whose content key was agreed directly refuses a second recipient.
+  Pinned against all 31 ephemeral-static ECDH examples of the COSE working
+  group, at every intermediate they publish, and against RFC 7748's X25519
+  vectors. Vanaheimr Styx's `Illias/COSE` gained the same, and beyond the
+  examples the two were given identical inputs on X25519, X448, brainpool
+  P-256 and P-320, P-384 and secp256k1, with and without salt and party
+  information: they wrote identical bytes in all 24 cases, each opening the
+  other's. The static-static variants are not implemented.
+- **The ECDH primitives are exported**: `ecdhSharedSecret`, `kdfContext`,
+  `hkdfDerive`, `isEcdhCurve` and `montgomeryPublicKeyFor`, for whoever needs
+  to check an intermediate against an implementation of their own.
+
 ### Development
 
 - **Dependabot opens pull requests for new releases** of the dependencies

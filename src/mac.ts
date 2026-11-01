@@ -52,7 +52,8 @@ import { KEY_TYPE_SYMMETRIC }                from './key.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
 import { canonicalizePayload }               from './payload.ts';
-import { CoseRecipient }                     from './recipient.ts';
+import { CoseRecipient,
+         requireRecipientsCompatible }       from './recipient.ts';
 import { resolveAlgorithm, resolvePayload }  from './resolve.ts';
 
 
@@ -220,6 +221,8 @@ export class CoseMac {
         if (contentKey.keyType !== KEY_TYPE_SYMMETRIC)
             throw new CoseError(`A COSE_Mac message needs a content key of key type Symmetric, but a key of key type ${String(contentKey.keyType)} was given!`);
 
+        requireRecipientsCompatible(recipients, 'A COSE_Mac message');
+
         const protectedHeader = new CoseHeaders([
             [label(HeaderLabel.algorithm), cbor.int(algorithm.id)],
         ]);
@@ -285,9 +288,9 @@ export class CoseMac {
         if (!payload.ok)
             return notVerified(payload.reason);
 
-        if (key.keyType !== KEY_TYPE_SYMMETRIC)
-            return notVerified(`A COSE_Mac message needs a key of key type Symmetric, but a key of key type ${String(key.keyType)} was given!`);
-
+        // Which kind of key fits is the recipients' to say, as for
+        // COSE_Encrypt: symmetric for direct and key wrap, a private EC2 or
+        // OKP key for ECDH-ES.
         const toBeMaced = CoseMac.toBeMaced(this.protectedHeaderBytes,
                                             payload.value,
                                             options.externalAad ?? null);
@@ -296,7 +299,7 @@ export class CoseMac {
 
         for (const recipient of this.recipients) {
 
-            const contentKey = recipient.contentKey(key);
+            const contentKey = recipient.contentKey(key, algorithm.value);
 
             if (contentKey === null)
                 continue;

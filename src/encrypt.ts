@@ -54,7 +54,8 @@ import { CoseHeaders,
 import { KEY_TYPE_SYMMETRIC }                from './key.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
-import { CoseRecipient }                     from './recipient.ts';
+import { CoseRecipient,
+         requireRecipientsCompatible }       from './recipient.ts';
 
 
 /** The CBOR tag of a COSE_Encrypt0 message. */
@@ -447,6 +448,7 @@ export class CoseEncrypt extends CoseEncryptedBase {
         const algorithm      = requireAesGcm(contentKey);
 
         requireUsable(contentKey, algorithm);
+        requireRecipientsCompatible(recipients, 'A COSE_Encrypt message');
 
         const protectedHeader = new CoseHeaders([
             [label(HeaderLabel.algorithm), algorithmToCbor(algorithm)],
@@ -478,14 +480,15 @@ export class CoseEncrypt extends CoseEncryptedBase {
      */
     public decrypt(key: CoseKey, options: DecryptOptions = {}): Decryption {
 
-        if (key.keyType !== KEY_TYPE_SYMMETRIC)
-            return notDecrypted(`A COSE_Encrypt message needs a key of key type Symmetric, but a key of key type ${String(key.keyType)} was given!`);
-
+        // Which kind of key fits is the recipients' to say rather than this
+        // message's: a symmetric one for direct and key wrap, the private half
+        // of an EC2 or OKP key pair for ECDH-ES. One that fits none of them
+        // ends below, as a recipient list that yielded nothing.
         let tried = 0;
 
         for (const recipient of this.recipients) {
 
-            const contentKey = recipient.contentKey(key);
+            const contentKey = recipient.contentKey(key, options.expectedAlgorithm ?? this.algorithm);
 
             if (contentKey === null)
                 continue;

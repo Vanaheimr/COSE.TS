@@ -67,10 +67,10 @@ export const CoseCurves = {
     P256:             curve(  1, 'P-256',           KEY_TYPE_EC2, 32,   32),
     P384:             curve(  2, 'P-384',           KEY_TYPE_EC2, 48,   48),
     P521:             curve(  3, 'P-521',           KEY_TYPE_EC2, 66,   66),
-    // The two key-agreement curves carry no signature algorithm, so their
-    // widths are recorded as unknown rather than guessed at.
-    X25519:           curve(  4, 'X25519',          KEY_TYPE_OKP, null, null),
-    X448:             curve(  5, 'X448',            KEY_TYPE_OKP, null, null),
+    // The two key-agreement curves [RFC 7748] sign nothing; they exist for
+    // ECDH-ES, and both halves of a key are one u-coordinate wide.
+    X25519:           curve(  4, 'X25519',          KEY_TYPE_OKP, 32,   32),
+    X448:             curve(  5, 'X448',            KEY_TYPE_OKP, 56,   56),
 
     Ed25519:          curve(  6, 'Ed25519',         KEY_TYPE_OKP, 32,   32),
     Ed448:            curve(  7, 'Ed448',           KEY_TYPE_OKP, 57,   57),

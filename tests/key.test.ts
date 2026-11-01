@@ -18,7 +18,8 @@ import { ALL_ALGORITHMS, ALL_CURVES, cbor,
          isImplemented,
          KEY_TYPE_EC2, KEY_TYPE_OKP,
          KeyLabel }                          from '../src/index.ts';
-import { hex, KEY_11, KEY_BILBO, unhex }     from './vectors.ts';
+import { CONTENT, hex, KEY_11, KEY_BILBO,
+         unhex }                             from './vectors.ts';
 
 
 describe('a COSE key', () => {
@@ -228,17 +229,21 @@ describe('the curve registry', () => {
 
     });
 
-    it('refuses the two key-agreement curves, which sign nothing', () => {
+    it('signs nothing on the two key-agreement curves, and agrees keys on them', () => {
 
-        // X25519 and X448 are in the registry and are not signature curves at
-        // all. The refusal names the curve, which is the honest failure;
-        // silently substituting one would not be.
+        // X25519 and X448 are key-agreement curves and not signature curves
+        // at all: neither ECDSA nor EdDSA computes with them. They do make
+        // key pairs — for ECDH-ES — whose public key is RFC 7748's, not an
+        // EdDSA one, and signing with such a key is refused by name.
         for (const curve of [CoseCurves.X25519, CoseCurves.X448]) {
 
             expect(isImplemented(curve), curve.name).toBe(false);
             expect(isEddsaCurve(curve),  curve.name).toBe(false);
 
-            expect(() => CoseKey.fromOkpPrivateKey(curve, new Uint8Array(32).fill(1)))
+            const key = CoseKey.fromOkpPrivateKey(curve, new Uint8Array(curve.orderSize!).fill(1));
+
+            expect(key.x, curve.name).toHaveLength(curve.fieldSize!);
+            expect(() => CoseSign1.sign(CONTENT, key.withAlgorithm(CoseAlgorithms.EdDSA)), curve.name)
                 .toThrow(/not an EdDSA signature curve/u);
 
         }
