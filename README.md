@@ -514,6 +514,12 @@ overnight — the curve library has already done it once, by normalising ECDSA's
 `s` where COSE does not. Drift in the codec's *unreleased* master belongs to
 the conformance suite below, which builds both implementations from source.
 
+Dependabot turns those releases into pull requests, so that a release that
+passes arrives through `ci.yml` like any other change: daily for npm — the
+`@noble` libraries together, the codec on its own because under 0.x each of
+its minors is a range change and a COSE minor with it, the development
+tooling in one — and weekly for the GitHub Actions.
+
 The third badge is the one that matters most and belongs to another repository:
 [MCBORConformanceTests](https://github.com/Vanaheimr/MCBORConformanceTests)
 signs every case with **both** this implementation and the C# one and hands

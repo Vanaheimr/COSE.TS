@@ -8,6 +8,14 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Development
+
+- **Dependabot opens pull requests for new releases** of the dependencies
+  and the GitHub Actions (`.github/dependabot.yml`). Ranges move only when a
+  release lies outside them; the `@noble` libraries arrive together, the
+  codec on its own, and TypeScript 7 is held back for as long as
+  typescript-eslint and typedoc do not accept it.
+
 ## [0.11.0] — 2026-11-01
 
 A minor without a changed line of library code, for the reason 0.10.0 was

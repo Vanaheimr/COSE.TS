@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    # A library raises its floors only when it has to: a new release inside
+    # a range updates the lock file, and the range moves only for a release
+    # outside it — a new 0.x minor of the codec, a new major of @noble.
+    versioning-strategy: increase-if-necessary
+    groups:
+      # The signatures, MACs and ciphers rest on these; a release of one
+      # tends to come with releases of the others.
+      noble:
+        patterns:
+          - '@noble/*'
+      # eslint, vitest, typedoc and the rest: one pull request, not ten.
+      development:
+        dependency-type: development
+    ignore:
+      # typescript-eslint and typedoc accept nothing newer than TypeScript 6
+      # yet; a pull request for 7 could only fail.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+    # The codec stays ungrouped. Under 0.x its every minor is a range change
+    # that re-exports a new CborValue and CborError, so merging that pull
+    # request makes the next COSE release a minor as well.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - '*'
