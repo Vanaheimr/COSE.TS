@@ -16,6 +16,20 @@ Until 1.0.0 the public API may change in minor releases.
   Software Foundation and MetrologicalCBOR.TS use. The text is unchanged, and
   npm includes a `LICENSE` file in a package whatever `files` says.
 
+### Development
+
+- **The development dependencies are on their newest releases that fit.**
+  `eslint` 10.14.0, `typescript-eslint` 8.72.1, `globals` 17.14.0,
+  `@types/node` 26.6.6 and the transitive tree within its ranges. TypeScript
+  stays on 6: typescript-eslint and typedoc accept nothing newer yet.
+
+  The nightly audit stays red on GHSA-g3hv-75wg-m249, a denial of service in
+  `minimatch` below 11.0.1. 11 is the only fixed line, and
+  `@eslint/config-array`, typescript-estree and typedoc all require `^10` in
+  their newest releases; overriding to 11 breaks typedoc, as MetrologicalCBOR.TS
+  found the same day. It waits for upstream. The package has no runtime
+  dependency on any of it.
+
 ## [0.10.0] — 2026-10-25
 
 A minor without a single changed line of library code, and deliberately so.
