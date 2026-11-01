@@ -23,12 +23,16 @@ Until 1.0.0 the public API may change in minor releases.
   `@types/node` 26.6.6 and the transitive tree within its ranges. TypeScript
   stays on 6: typescript-eslint and typedoc accept nothing newer yet.
 
-  The nightly audit stays red on GHSA-g3hv-75wg-m249, a denial of service in
-  `minimatch` below 11.0.1. 11 is the only fixed line, and
-  `@eslint/config-array`, typescript-estree and typedoc all require `^10` in
-  their newest releases; overriding to 11 breaks typedoc, as MetrologicalCBOR.TS
-  found the same day. It waits for upstream. The package has no runtime
-  dependency on any of it.
+  `minimatch` is overridden to `^11.0.3` for GHSA-g3hv-75wg-m249, a denial
+  of service below 11.0.1 that only the 11 line fixes, while
+  `@eslint/config-array`, typescript-estree and typedoc still ask for `^10`
+  in their newest releases. Here the override holds: lint, the suite, the
+  coverage floor and typedoc all run on 11.0.3, and `npm audit` reports
+  nothing. In MetrologicalCBOR.TS the same override stopped typedoc with
+  `mini.matchOne is not a function`, under a typedoc configuration that
+  differs from this one in names and links only, so the cause there is not yet
+  known. The override goes once those packages accept 11 themselves. The
+  package has no runtime dependency on any of it.
 
 ## [0.10.0] — 2026-10-25
 
