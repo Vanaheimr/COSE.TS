@@ -28,11 +28,19 @@ Until 1.0.0 the public API may change in minor releases.
   `@eslint/config-array`, typescript-estree and typedoc still ask for `^10`
   in their newest releases. Here the override holds: lint, the suite, the
   coverage floor and typedoc all run on 11.0.3, and `npm audit` reports
-  nothing. In MetrologicalCBOR.TS the same override stopped typedoc with
-  `mini.matchOne is not a function`, under a typedoc configuration that
-  differs from this one in names and links only, so the cause there is not yet
-  known. The override goes once those packages accept 11 themselves. The
+  nothing. The override goes once those packages accept 11 themselves. The
   package has no runtime dependency on any of it.
+
+  **It holds only while `src/` stays flat.** minimatch 11 removed
+  `matchOne`, and typedoc 0.28.20 still calls it — but only from the glob
+  walk that expands `entryPoints`, and only when that walk descends into a
+  subdirectory of `src/`. This repository has none, so the call never
+  happens; MetrologicalCBOR.TS has several, which is why the same override
+  stops typedoc there with `mini.matchOne is not a function` under an
+  otherwise identical configuration. The first subdirectory in `src/` will
+  make `npm run docs:api` fail the same way — loudly, in `verify` and in CI,
+  not with wrong output. At that point either typedoc has moved, or the
+  override has to go and the nightly audit stays red until it does.
 
 ## [0.10.0] — 2026-10-25
 
