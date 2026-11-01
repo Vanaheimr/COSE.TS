@@ -406,19 +406,27 @@ describe('an ECDH-ES recipient named by its certificate (x5t)', () => {
     const plaintext = new TextEncoder().encode('a command for this station only');
     const iv        = unhex('C9CF4DF2FE6C632BF7886413');
 
-    const sender    = CoseKey.fromOkpPrivateKey(CoseCurves.X25519, new Uint8Array(32).fill(0x11));
-    const receiver  = CoseKey.fromOkpPrivateKey(CoseCurves.X25519, new Uint8Array(32).fill(0x22));
+    // A station's key-agreement key and its certificate from the corpus,
+    // shaped as EVQI Transport section 6.8 has them: P-256, keyUsage
+    // keyAgreement and nothing else. "another" is the same station's renewed
+    // certificate — the case x5t exists for, a recipient holding more than
+    // one key at a time. Whether a certificate certifies the key it is used
+    // with is for the caller to establish, not for x5t to say.
+    type KeyAgreementName = 'stationKeyAgreement' | 'stationKeyAgreementRenewed';
 
-    // A thumbprint is the hash of a certificate's DER encoding and nothing
-    // more, so any two certificates serve to tell "this one" from "another":
-    // these two stand in for the key-agreement certificate of the recipient
-    // and for somebody else's. Whether a certificate certifies the key it is
-    // used with is for the caller to establish, not for x5t to say.
-    const corpusCertificate = (name: 'meter' | 'strangerMeter'): X509Certificate =>
+    const corpusCertificate = (name: KeyAgreementName): X509Certificate =>
         X509Certificate.parse(unhex(certificates.certificates[name]));
 
-    const mine    = corpusCertificate('meter');
-    const another = corpusCertificate('strangerMeter');
+    const sender    = CoseKey.fromPrivateScalar(CoseCurves.P256, new Uint8Array(32).fill(0x11));
+    const receiver  = CoseKey.fromPrivateScalar(CoseCurves.P256,
+                          unhex(certificates.privateKeys.stationKeyAgreement.keyD));
+
+    const mine    = corpusCertificate('stationKeyAgreement');
+    const another = corpusCertificate('stationKeyAgreementRenewed');
+
+    it('uses a certificate that certifies the receiving key', () => {
+        expect(hex(mine.publicKey.publicKeyBytes())).toBe(hex(receiver.publicKeyBytes()));
+    });
 
     const encryptedFor = (certificate: X509Certificate | null): CoseEncrypt => {
 
