@@ -8,6 +8,12 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-11-01
+
+A patch: the library's code and its dependency ranges are exactly those of
+0.10.0. What an installer receives differently is the name of one file, and
+a development toolchain cleared of an advisory.
+
 ### Changed
 
 - **The licence file is `LICENSE` again, without an extension.** The Apache
