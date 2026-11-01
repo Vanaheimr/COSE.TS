@@ -35,6 +35,20 @@ Until 1.0.0 the public API may change in minor releases.
   `hkdfDerive`, `isEcdhCurve` and `montgomeryPublicKeyFor`, for whoever needs
   to check an intermediate against an implementation of their own.
 
+### Changed
+
+- **A certificate thumbprint (`x5t`) must name a hash algorithm.** Every
+  algorithm that names a digest used to pass — `ES256`, `HMAC 256/256` and,
+  since this release, the ECDH-ES algorithms all name SHA-256 for a
+  computation of their own, and an `x5t` carrying one of them was read as a
+  SHA-256 thumbprint. It is refused now, when building one, when reading one
+  and when matching one, because a thumbprint claiming a signature algorithm
+  claims a computation nobody performed. Only the hash algorithms of
+  RFC 9054 (`SHA-256`, `SHA-384`, `SHA-512`) qualify. Styx made the same
+  change at the same time: the lenient reading was a deliberate one both
+  implementations shared, and they now share the strict one, so the two
+  still reach the same verdict about the same message.
+
 ### Development
 
 - **Dependabot opens pull requests for new releases** of the dependencies

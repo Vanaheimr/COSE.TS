@@ -259,4 +259,30 @@ describe('a COSE_CertHash', () => {
 
     });
 
+    it('accepts only the hash algorithms, not every algorithm that names a digest', () => {
+
+        // Each of these names SHA-256 for a computation of its own — a
+        // signature, a tag, a key derivation — and none of them is the
+        // thumbprint x5t carries. The digest of the certificate is the same
+        // bytes either way, which is exactly why a lax check passed them.
+        const meter = certificate('meter');
+        const sha256 = CoseCertificateHash.from(meter);
+
+        for (const impostor of [CoseAlgorithms.ES256, CoseAlgorithms.HMAC256_256,
+                                CoseAlgorithms.ECDH_ES_HKDF_256]) {
+
+            expect(() => CoseCertificateHash.from(meter, impostor), impostor.name).toThrow(/not a hash algorithm/u);
+
+            expect(() => CoseCertificateHash.fromCbor(cbor.array([cbor.int(impostor.id), cbor.bytes(sha256.value)])),
+                   impostor.name).toThrow(/not a hash algorithm/u);
+
+            expect(new CoseCertificateHash(impostor, sha256.value).matches(meter).verified, impostor.name).toBe(false);
+
+        }
+
+        for (const hash of [CoseAlgorithms.SHA256, CoseAlgorithms.SHA384, CoseAlgorithms.SHA512])
+            expect(CoseCertificateHash.from(meter, hash).matches(meter).verified, hash.name).toBe(true);
+
+    });
+
 });

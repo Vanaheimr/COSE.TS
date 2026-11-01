@@ -26,6 +26,7 @@ import { cbor }                                        from './cbor.ts';
 import type { CborValue }                              from './cbor.ts';
 import { CoseError, notVerified, VERIFIED }            from './errors.ts';
 import type { Verification }                           from './errors.ts';
+import type { DigestAlgorithm }                        from './ecdsa.ts';
 import type { CoseKey }                                from './key.ts';
 import { KeyUsage, X509Certificate }                   from './x509.ts';
 
@@ -279,10 +280,12 @@ export class CoseCertificateHash {
     public static from(certificate: X509Certificate,
                        algorithm:   CoseAlgorithm = CoseAlgorithms.SHA256): CoseCertificateHash {
 
-        if (algorithm.hash === null)
+        const hash = hashAlgorithmOf(algorithm);
+
+        if (hash === null)
             throw new CoseError(`The COSE algorithm '${algorithm.name}' is not a hash algorithm!`);
 
-        return new CoseCertificateHash(algorithm, certificate.thumbprint(algorithm.hash));
+        return new CoseCertificateHash(algorithm, certificate.thumbprint(hash));
 
     }
 
@@ -309,7 +312,7 @@ export class CoseCertificateHash {
         if (algorithm === null)
             throw new CoseError(`The COSE algorithm ${String(algorithmValue.value)} of the COSE_CertHash is not registered!`);
 
-        if (algorithm.hash === null)
+        if (hashAlgorithmOf(algorithm) === null)
             throw new CoseError(`The COSE algorithm '${algorithm.name}' of the COSE_CertHash is not a hash algorithm!`);
 
         return new CoseCertificateHash(algorithm, hashValue.value);
@@ -333,10 +336,12 @@ export class CoseCertificateHash {
      */
     public matches(certificate: X509Certificate): Verification {
 
-        if (this.algorithm.hash === null)
+        const hash = hashAlgorithmOf(this.algorithm);
+
+        if (hash === null)
             return notVerified(`The COSE algorithm '${this.algorithm.name}' of the certificate thumbprint is not a hash algorithm!`);
 
-        const computed = certificate.thumbprint(this.algorithm.hash);
+        const computed = certificate.thumbprint(hash);
 
         if (computed.length !== this.value.length ||
             !computed.every((each, index) => each === this.value[index]))
@@ -346,4 +351,19 @@ export class CoseCertificateHash {
 
     }
 
+}
+
+
+/**
+ * The digest a hash algorithm names, or null when the algorithm is not one.
+ *
+ * Not every algorithm with a digest is a hash algorithm. `ES256` names
+ * SHA-256 for the signature it makes, `HMAC 256/256` for its tag and
+ * `ECDH-ES + HKDF-256` for its key derivation — and a thumbprint that named
+ * any of them would claim a computation nobody performed: `x5t` carries a
+ * hash, and only the hash algorithms of RFC 9054 compute one. They are the
+ * entries of family `none` that name a digest.
+ */
+function hashAlgorithmOf(algorithm: CoseAlgorithm): DigestAlgorithm | null {
+    return algorithm.family === 'none' ? algorithm.hash : null;
 }

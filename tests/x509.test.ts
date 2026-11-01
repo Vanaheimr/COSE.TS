@@ -432,17 +432,18 @@ describe('The thumbprint names a certificate, it does not vouch for one', () => 
 
     });
 
-    it('takes a signature algorithm to mean its own digest, as Styx does', () => {
+    it('refuses a signature algorithm in place of a hash, as Styx does', () => {
 
-        // Strictly, -7 names ECDSA and not a hash. Both implementations read
-        // it as the digest that algorithm uses, which is the lenient reading —
-        // and being lenient in the same way is what matters here, since the
-        // two have to reach the same verdict about the same message.
-        const thumbprint = CoseCertificateHash.fromCbor(
-                               cbor.array([cbor.int(-7), cbor.bytes(certificate('meter').thumbprint())]));
-
-        expect(thumbprint.algorithm.hash).toBe('sha256');
-        expect(thumbprint.matches(certificate('meter')).verified).toBe(true);
+        // -7 names ECDSA, not a hash. Both implementations used to read it as
+        // the digest that algorithm uses — a lenient reading they shared, and
+        // sharing it was what mattered, since the two have to reach the same
+        // verdict about the same message. They now share the strict one: a
+        // thumbprint carries a hash, and only the hash algorithms compute one.
+        // Signature, MAC and key-agreement algorithms all name a digest for a
+        // computation of their own, and none of them is this.
+        expect(() => CoseCertificateHash.fromCbor(
+                         cbor.array([cbor.int(-7), cbor.bytes(certificate('meter').thumbprint())])))
+            .toThrow(/not a hash algorithm/u);
 
     });
 
