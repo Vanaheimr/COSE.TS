@@ -1,0 +1,4 @@
+# Every text file is LF in the working tree too, whatever core.autocrlf says.
+# The source map in dist/ embeds the sources as they lie on disk, so a
+# checkout with CRLF would build a different package from the same commit.
+* text=auto eol=lf
