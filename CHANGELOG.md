@@ -35,13 +35,13 @@ Until 1.0.0 the public API may change in minor releases.
   algorithm 24, as the second content encryption algorithm beside AES-GCM:
   `CoseEncrypt0` and `CoseEncrypt` encrypt with whichever AEAD the key names,
   and an ECDH-ES recipient agrees a 256-bit key for it like for any other.
-  It was left out until now for want of a use; EVQI Transport supplies one —
-  charging-station controllers without AES instructions — and names it beside
-  AES-GCM. Pinned against RFC 8439's AEAD example and both ChaCha20/Poly1305
-  examples of the COSE working group, `Enc_structure` included; Styx gained
-  the same at the same time. AES-CCM remains out, for the reasons the README
-  gives. `chachaPolyEncrypt` and `chachaPolyDecrypt` are exported beside the
-  AES-GCM pair.
+  It was left out until now for want of a use; EVQI Transport §7.2 now names
+  it beside AES-GCM, and a controller without AES instructions — the kind a
+  charging station is built around — is where it pays. Pinned against RFC
+  8439's AEAD example and both ChaCha20/Poly1305 examples of the COSE working
+  group, `Enc_structure` included; Styx gained the same at the same time.
+  AES-CCM remains out, for the reasons the README gives. `chachaPolyEncrypt`
+  and `chachaPolyDecrypt` are exported beside the AES-GCM pair.
 - **The ECDH primitives are exported**: `ecdhSharedSecret`, `kdfContext`,
   `hkdfDerive`, `isEcdhCurve` and `montgomeryPublicKeyFor`, for whoever needs
   to check an intermediate against an implementation of their own.

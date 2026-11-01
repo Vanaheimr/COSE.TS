@@ -321,15 +321,15 @@ inside an encrypted envelope is how one gets both — and COSE nests, so both ca
 travel at once.
 
 **ChaCha20/Poly1305 is there for hardware without AES instructions.** A
-charging station's controller often has none, and a software AES there is
-slow or leaks its key through cache timing; ChaCha20 is additions, rotations
-and XORs, constant-time by construction. EVQI Transport names it beside
-AES-GCM for that reason, which is what turned it from "nothing here asked for"
-into something that was. Within COSE it is shaped like `A256GCM` on purpose —
-one 256-bit key, a 96-bit nonce, the 128-bit tag appended — so everything
-above applies unchanged, the nonce rule included: Poly1305's one-time key is
-derived from the nonce, and a nonce used twice under one key hands over the
-means to forge.
+charging station's controller often has none, and a software AES there is slow
+or leaks its key through cache timing; ChaCha20 is additions, rotations and
+XORs, constant-time by construction. EVQI Transport §7.2 names it beside
+AES-GCM as the AEAD for messages that need confidentiality, which is what
+turned it from "nothing here asked for" into something that was. Within COSE it
+is shaped like `A256GCM` on purpose — one 256-bit key, a 96-bit nonce, the
+128-bit tag appended — so everything above applies unchanged, the nonce rule
+included: Poly1305's one-time key is derived from the nonce, and a nonce used
+twice under one key hands over the means to forge.
 
 Not implemented: AES-CCM — scope rather than judgement. It is eight registered
 variants of nonce and tag width (64-bit tags included, a constrained-radio

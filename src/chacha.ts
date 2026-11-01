@@ -12,7 +12,7 @@
  * instructions — the kind a charging station is built around — computes
  * ChaCha20 in constant time from additions, rotations and XORs, where a
  * software AES either runs slowly or leaks its key through cache timing.
- * EVQI Transport names it beside AES-GCM for exactly that reason.
+ * EVQI Transport §7.2 names it beside AES-GCM.
  *
  * Within COSE it is shaped like AES-GCM on purpose, and every lesson of that
  * file applies here unchanged: one 256-bit key, a 96-bit nonce in the `iv`
