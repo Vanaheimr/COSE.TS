@@ -8,6 +8,17 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-11-03
+
+A minor, for either of two reasons. It adds RSA — RSASSA-PSS and
+RSASSA-PKCS1-v1_5, as COSE signatures and as the signatures of certificate
+chains — which were the algorithms Styx had and this package did not. And it
+refuses a message it used to decrypt: one that carries both an IV and a
+Partial IV, which RFC 9052 forbids. The codec stays at `^0.12.0`, and every
+message 0.12.0 wrote, this release writes byte for byte the same. Styx
+refuses the same message since the same day, and the cross-implementation
+suite requires the refusal of both.
+
 ### Added
 
 - **RSA signatures: PS256, PS384, PS512 [RFC 8230] and RS256, RS384, RS512
