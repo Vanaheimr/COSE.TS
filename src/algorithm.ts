@@ -28,20 +28,30 @@ import type { DigestAlgorithm }          from './ecdsa.ts';
 import { eddsaSign, eddsaVerify }        from './eddsa.ts';
 import { mldsaSign, mldsaVerify }        from './mldsa.ts';
 import { macTag, tagsEqual }             from './hmac.ts';
+import { rsaSign, rsaVerify }            from './rsa.ts';
+import type { RsaPrivateKey, RsaPublicKey,
+              RsaScheme }                from './rsa.ts';
 
 
 /**
  * Which machinery an algorithm needs.
  *
- * The distinction that earns its place here is `ecdsa` against the other two:
- * ECDSA signs a *digest* of the message, chosen by the algorithm, while EdDSA
- * and ML-DSA are pure and take the message itself. Handing a pure signer a
- * digest produces a signature that is valid for the digest and that nobody
- * else will ever accept — a failure with no symptom until the day two
- * implementations meet.
+ * The distinction that earns its place here is what each family is handed.
+ * `ecdsa` is given a *digest* of the message, chosen by the algorithm; the
+ * pure families `eddsa` and `mldsa` are given the message itself; the two RSA
+ * schemes are given the message as well and hash it inside their own padding,
+ * where the digest ends up as part of an encoded block rather than as the
+ * input. Handing a pure signer a digest produces a signature that is valid for
+ * the digest and that nobody else will ever accept — a failure with no symptom
+ * until the day two implementations meet.
+ *
+ * The two RSA families are one primitive and two paddings, and they are not
+ * interchangeable either: a verifier that tries the wrong padding sees a
+ * forgery.
  */
-export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'hmac'
-                            | 'aesgcm' | 'chacha20poly1305' | 'keywrap' | 'direct'
+export type AlgorithmFamily = 'ecdsa' | 'eddsa' | 'mldsa' | 'rsapss' | 'rsapkcs1'
+                            | 'hmac' | 'aesgcm' | 'chacha20poly1305'
+                            | 'keywrap' | 'direct'
                             | 'ecdh-direct' | 'ecdh-keywrap' | 'none';
 
 
@@ -173,6 +183,29 @@ export const CoseAlgorithms = {
                        { family: 'mldsa', parameterSet: 'ML-DSA-65', signing: true }),
     MLDSA87: algorithm( -50, 'ML-DSA-87', 'CBOR Object Signing Algorithm for ML-DSA-87',
                        { family: 'mldsa', parameterSet: 'ML-DSA-87', signing: true }),
+
+    // RSA [RFC 8230, RFC 8812]. On no curve either, and with no parameter
+    // set: an RSA key is a modulus and some exponents, of key type RSA, at
+    // least 2048 bits wide [RFC 8230, Section 6.1].
+    //
+    // RSASSA-PSS is what the registry recommends. RSASSA-PKCS1-v1_5 is
+    // registered "Not Recommended" — RFC 8812 Section 5.2 says so and points
+    // at the security considerations of RFC 7518 — and it is here for the
+    // reason it is registered at all: it is what WebAuthn authenticators and
+    // TPMs offer when they offer RSA.
+    PS256:   algorithm( -37, 'PS256',   'RSASSA-PSS w/ SHA-256',
+                       { family: 'rsapss', hash: 'sha256', signing: true }),
+    PS384:   algorithm( -38, 'PS384',   'RSASSA-PSS w/ SHA-384',
+                       { family: 'rsapss', hash: 'sha384', signing: true }),
+    PS512:   algorithm( -39, 'PS512',   'RSASSA-PSS w/ SHA-512',
+                       { family: 'rsapss', hash: 'sha512', signing: true }),
+
+    RS256:   algorithm(-257, 'RS256',   'RSASSA-PKCS1-v1_5 using SHA-256',
+                       { family: 'rsapkcs1', hash: 'sha256', signing: true }),
+    RS384:   algorithm(-258, 'RS384',   'RSASSA-PKCS1-v1_5 using SHA-384',
+                       { family: 'rsapkcs1', hash: 'sha384', signing: true }),
+    RS512:   algorithm(-259, 'RS512',   'RSASSA-PKCS1-v1_5 using SHA-512',
+                       { family: 'rsapkcs1', hash: 'sha512', signing: true }),
 
     // HMAC [RFC 9053, Section 3.1]. A message authentication code rather than
     // a signature: symmetric, so whoever verifies one can produce one, and
@@ -347,31 +380,78 @@ function parameterSetOf(value: CoseAlgorithm): string {
 }
 
 
+function schemeOf(value: CoseAlgorithm): RsaScheme {
+    return value.family === 'rsapss' ? 'pss' : 'pkcs1';
+}
+
+
+/**
+ * The single key value every family but RSA signs and verifies with.
+ *
+ * "Implementations need to check that the key type is 'RSA' when creating or
+ * verifying a signature" [RFC 8230, Section 2] — and the other way round,
+ * which is what these two guards are. The key material arrives in one of two
+ * shapes and only one of them fits.
+ */
+function oneValue(value: CoseAlgorithm, key: Uint8Array | RsaPublicKey): Uint8Array {
+
+    if (!(key instanceof Uint8Array))
+        throw new CoseError(`The COSE algorithm '${value.name}' needs a single key value, but was given the parameters of an RSA key!`);
+
+    return key;
+
+}
+
+
+function rsaKey<T extends RsaPublicKey>(value: CoseAlgorithm, key: Uint8Array | T): T {
+
+    if (key instanceof Uint8Array)
+        throw new CoseError(`The COSE algorithm '${value.name}' needs an RSA key [RFC 8230, Section 4], but was given a single key value!`);
+
+    return key;
+
+}
+
+
 /**
  * Sign the Sig_structure of a message with the given algorithm.
  *
- * Note which of the three branches hashes and which do not. ECDSA signs a
- * digest of the Sig_structure; EdDSA and ML-DSA sign the Sig_structure itself.
+ * Note which of the branches hashes here and which do not. ECDSA signs a
+ * digest of the Sig_structure; EdDSA, ML-DSA and both RSA schemes are handed
+ * the Sig_structure itself, the RSA paddings hashing it within themselves.
  * Getting that backwards yields a signature that verifies against nothing but
  * an implementation making the same mistake.
+ *
+ * `salt` is for RSASSA-PSS and is ignored by everything else. It defaults to
+ * zeroes, which is deliberate and argued in `rsa.ts`: this package draws no
+ * randomness, and a PSS salt is the one piece a signature scheme asks of its
+ * caller rather than offers.
  */
 export function signWith(value:       CoseAlgorithm,
                          keyCurve:    CoseCurve | null,
                          toBeSigned:  Uint8Array,
-                         privateKey:  Uint8Array): Uint8Array {
+                         privateKey:  Uint8Array | RsaPrivateKey,
+                         salt:        Uint8Array | null = null): Uint8Array {
 
     switch (value.family) {
 
         case 'ecdsa':
             return sign(resolveCurve(value, keyCurve),
                         digest(hashOf(value), toBeSigned),
-                        privateKey);
+                        oneValue(value, privateKey));
 
         case 'eddsa':
-            return eddsaSign(resolveCurve(value, keyCurve), toBeSigned, privateKey);
+            return eddsaSign(resolveCurve(value, keyCurve), toBeSigned,
+                             oneValue(value, privateKey));
 
         case 'mldsa':
-            return mldsaSign(parameterSetOf(value), toBeSigned, privateKey);
+            return mldsaSign(parameterSetOf(value), toBeSigned,
+                             oneValue(value, privateKey));
+
+        case 'rsapss':
+        case 'rsapkcs1':
+            return rsaSign(hashOf(value), schemeOf(value),
+                           rsaKey<RsaPrivateKey>(value, privateKey), toBeSigned, salt);
 
         default:
             throw new CoseError(`The COSE algorithm '${value.name}' is not a signature algorithm this implementation supports!`);
@@ -427,7 +507,7 @@ export function verifyWith(value:       CoseAlgorithm,
                            keyCurve:    CoseCurve | null,
                            toBeSigned:  Uint8Array,
                            signature:   Uint8Array,
-                           publicKey:   Uint8Array): boolean {
+                           publicKey:   Uint8Array | RsaPublicKey): boolean {
 
     switch (value.family) {
 
@@ -435,13 +515,20 @@ export function verifyWith(value:       CoseAlgorithm,
             return verify(resolveCurve(value, keyCurve),
                           signature,
                           digest(hashOf(value), toBeSigned),
-                          publicKey);
+                          oneValue(value, publicKey));
 
         case 'eddsa':
-            return eddsaVerify(resolveCurve(value, keyCurve), signature, toBeSigned, publicKey);
+            return eddsaVerify(resolveCurve(value, keyCurve), signature, toBeSigned,
+                               oneValue(value, publicKey));
 
         case 'mldsa':
-            return mldsaVerify(parameterSetOf(value), signature, toBeSigned, publicKey);
+            return mldsaVerify(parameterSetOf(value), signature, toBeSigned,
+                               oneValue(value, publicKey));
+
+        case 'rsapss':
+        case 'rsapkcs1':
+            return rsaVerify(hashOf(value), schemeOf(value),
+                             rsaKey(value, publicKey), toBeSigned, signature);
 
         default:
             throw new CoseError(`The COSE algorithm '${value.name}' is not a signature algorithm this implementation supports!`);

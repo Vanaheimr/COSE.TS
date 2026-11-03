@@ -112,8 +112,10 @@ for it.
 | `ES256K` | −47 | secp256k1 | SHA-256 |
 | `Ed25519` / `Ed448` | −19 / −53 | Ed25519 / Ed448 | *(none — pure)* |
 | `ML-DSA-44` / `-65` / `-87` | −48 / −49 / −50 | *(none — an algorithm key pair)* | *(none — pure)* |
+| `PS256` / `PS384` / `PS512` | −37 / −38 / −39 | *(none — an RSA key)* | SHA-256 / 384 / 512 |
+| `RS256` / `RS384` / `RS512` | −257 / −258 / −259 | *(none — an RSA key)* | SHA-256 / 384 / 512 |
 
-**Two of those three families are pure**: EdDSA ([RFC 8032](https://www.rfc-editor.org/rfc/rfc8032))
+**Two of those families are pure**: EdDSA ([RFC 8032](https://www.rfc-editor.org/rfc/rfc8032))
 and ML-DSA ([FIPS 204](https://doi.org/10.6028/NIST.FIPS.204), registered for
 COSE by [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)) sign the
 `Sig_structure` itself rather than a digest of it. Handing a pure signer a hash
@@ -121,20 +123,46 @@ yields a signature that is valid for the hash and that nobody else accepts —
 which is why the family is a property of the algorithm here and not an
 afterthought.
 
-They also bring two more key types. EdDSA uses **OKP**, where the public key is
+**The two RSA families** are one primitive and two paddings
+([RFC 8230](https://www.rfc-editor.org/rfc/rfc8230) for RSASSA-PSS,
+[RFC 8812](https://www.rfc-editor.org/rfc/rfc8812) for RSASSA-PKCS1-v1_5), and
+they are not interchangeable: a verifier that tries the wrong padding sees a
+forgery. PSS is what the registry recommends; PKCS1-v1_5 is registered "Not
+Recommended" and is here for the reason it is registered at all — it is what
+WebAuthn authenticators and TPMs offer when they offer RSA. Both are
+implemented in [`src/rsa.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/rsa.ts)
+rather than taken from a dependency, because the `@noble` family has no RSA and
+WebCrypto is the asynchronous road not taken; the modular exponentiation is
+noble's, the paddings are this package's, and **neither is constant time, which
+pure-JavaScript RSA cannot be** — `BigInt` has no constant-time multiply. For
+verifying that is no concern; where an attacker can measure the *signer*, the
+signing key does not belong in this process.
+
+They bring three more key types. EdDSA uses **OKP**, where the public key is
 the whole of `x` and there is no `y`. ML-DSA uses **AKP**, a key pair belonging
 to an algorithm rather than to a curve — and there the labels shift underfoot:
 `−1` is the public key and `−2` the private one, where an EC2 or OKP key has
-the curve and the x coordinate. Parsing therefore establishes the key type
-before it reads anything else. Two further RFC 9964 particulars: `priv` is the
-**32-byte seed**, not the expanded secret key, and the thumbprint covers `alg`,
-because an ML-DSA public key does not say which parameter set produced it.
+the curve and the x coordinate. RSA uses **RSA** (key type 3), where `−1` is
+the modulus, `−2` the public exponent and `−3` the private one — the label
+that is the *y coordinate* of an EC2 key. Parsing therefore establishes the key
+type before it reads anything else. Two further RFC 9964 particulars: `priv` is
+the **32-byte seed**, not the expanded secret key, and the thumbprint covers
+`alg`, because an ML-DSA public key does not say which parameter set produced
+it. One RFC 8230 particular: every RSA parameter travels in the fewest octets
+that represent it, and a leading zero is refused rather than stripped, because
+the thumbprint is computed over those bytes as they stand — one key would
+otherwise have two identities.
 
 EdDSA is deterministic by construction; ML-DSA is not, and RFC 9964 does not
 choose. This library always takes the deterministic variant of FIPS 204, where
 the per-signature randomness is 32 zero bytes — the choice that decides whether
 two implementations can be compared byte for byte or only asked whether each
-accepts the other.
+accepts the other. RSASSA-PSS is the third of these: its salt defaults to
+zeroes here, and a caller who wants a random one passes it to `sign`. This
+package draws no randomness anywhere, and a fixed PSS salt costs nothing
+([RFC 8017 §9.1.2](https://www.rfc-editor.org/rfc/rfc8017#section-9.1.2) — the
+salt is recovered from the signature, never compared, so no verifier can tell),
+unlike a repeated ECDSA nonce, which is fatal.
 
 Every EC2 curve in the COSE registry is computable here. **brainpoolP320r1 is
 the one this package defines itself**, in [`src/ecdsa.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/src/ecdsa.ts), from
@@ -354,10 +382,10 @@ nothing to compare it against.
 #### The symmetric key
 
 Key type 4 [[RFC 9053 §7.3](https://www.rfc-editor.org/rfc/rfc9053#section-7.3)],
-carrying its value under label `−1`. That label now means a **third** thing:
-the curve on an EC2 or OKP key, the public key on an algorithm key pair, and
-the shared secret here — which is why the key type is established in a pass of
-its own before anything else is read.
+carrying its value under label `−1`. That label means a **fourth** thing here:
+the curve on an EC2 or OKP key, the public key on an algorithm key pair, the
+modulus on an RSA key, and the shared secret here — which is why the key type
+is established in a pass of its own before anything else is read.
 
 `publicKey()` throws on one rather than returning it unchanged. RFC 9053 states
 outright that the structure *"does not have a form that contains only public
@@ -574,6 +602,16 @@ then, decisively, by the conformance suite comparing its signatures against a
 second implementation of the same curve. ML-DSA is checked the same way, by the
 properties RFC 9964 pins down (the sizes, the seed-derived key pair, the
 label-shifting AKP parameters) and then by that same comparison.
+
+RSA has no published COSE vector either, and is checked against the platform
+instead: [`tests/rsa.test.ts`](https://github.com/Vanaheimr/COSE.TS/blob/master/tests/rsa.test.ts)
+hands the same eight key parameters to `node:crypto` — the only place in this
+repository that uses it — and requires that what this package signs OpenSSL
+verifies, that what OpenSSL signs this package verifies, and that
+RSASSA-PKCS1-v1_5, which has no randomness at all, comes out of both as the
+very same bytes. Styx checks its own RSA this way against the RSA of .NET, so
+the conformance suite then compares two implementations that each already
+agree with a third.
 
 ## Continuous integration
 

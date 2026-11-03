@@ -28,6 +28,7 @@
  */
 
 import { signWith, verifyWith }              from './algorithm.ts';
+import type { RsaPublicKey }                from './rsa.ts';
 import type { CoseAlgorithm }                from './algorithm.ts';
 import { bytesEqual, cbor, decode, encode,
          NO_BYTES }                          from './cbor.ts';
@@ -81,6 +82,16 @@ export interface Sign1Options {
      * covers. Defaults to true. A payload that is not CBOR is signed as it is.
      */
     readonly canonicalizePayload?:  boolean;
+
+    /**
+     * The salt of an RSASSA-PSS signature, as wide as the algorithm's hash
+     * [RFC 8230, Section 2]. Ignored by every other algorithm.
+     *
+     * It defaults to zeroes, because this package draws no randomness of its
+     * own anywhere — `rsa.ts` has the argument for why a fixed PSS salt costs
+     * nothing, and a caller who wants a random one passes it here.
+     */
+    readonly salt?:                 Uint8Array | null;
 
 }
 
@@ -358,7 +369,8 @@ export class CoseSign1 {
         const signature = signWith(algorithm,
                                    key.curve,
                                    CoseSign1.toBeSigned(protectedBytes, signed, options.externalAad ?? null),
-                                   key.privateKeyBytes());
+                                   key.signingKey(),
+                                   options.salt ?? null);
 
         return new CoseSign1(protectedBytes,
                              unprotectedHeader,
@@ -642,7 +654,8 @@ export class CoseSign1 {
                                                                payload.value,
                                                                this.signature,
                                                                options.externalAad ?? null),
-                                   key.privateKeyBytes());
+                                   key.signingKey(),
+                                   options.salt ?? null);
 
         const added = new CoseSignature(protectedBytes,
                                         keyIdentifier !== null
@@ -822,10 +835,10 @@ function verifySignature(algorithm:  CoseAlgorithm,
                          toBeSigned: Uint8Array,
                          signature:  Uint8Array): Verification {
 
-    let publicKey: Uint8Array;
+    let publicKey: Uint8Array | RsaPublicKey;
 
     try {
-        publicKey = key.publicKeyBytes();
+        publicKey = key.verificationKey();
     }
     catch (cause) {
         return notVerified(cause instanceof Error ? cause.message : String(cause));

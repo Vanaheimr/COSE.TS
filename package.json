@@ -13,6 +13,7 @@
         "mac",
         "ecdsa",
         "eddsa",
+        "rsa",
         "ml-dsa",
         "post-quantum",
         "brainpool",

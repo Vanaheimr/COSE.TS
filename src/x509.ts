@@ -514,7 +514,7 @@ export class X509Certificate {
                                   key.curve,
                                   this.tbsBytes,
                                   signature,
-                                  key.publicKeyBytes());
+                                  key.verificationKey());
         }
         catch (exception) {
             return notVerified(`The certificate '${this.subject.toString()}' could not be checked against '${issuer.subject.toString()}': ${exception instanceof Error ? exception.message : String(exception)}`);

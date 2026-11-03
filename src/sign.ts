@@ -372,7 +372,8 @@ function signatureOver(bodyProtectedHeaderBytes: Uint8Array,
                                                    protectedBytes,
                                                    payload,
                                                    options.externalAad ?? null),
-                               key.privateKeyBytes());
+                               key.signingKey(),
+                               options.salt ?? null);
 
     return new CoseSignature(protectedBytes,
                              keyIdentifier !== null

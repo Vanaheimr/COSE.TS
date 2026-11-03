@@ -5,15 +5,15 @@
  */
 
 /**
- * A COSE key: elliptic curve (EC2), octet key pair (OKP) or algorithm key
- * pair (AKP) [RFC 9052 Section 7, RFC 9964].
+ * A COSE key: elliptic curve (EC2), octet key pair (OKP), algorithm key pair
+ * (AKP) or RSA [RFC 9052 Section 7, RFC 9964, RFC 8230].
  *
- * **The labels are not the same for all three.** On an EC2 or OKP key, −1 is
+ * **The labels are not the same for all of them.** On an EC2 or OKP key, −1 is
  * the curve and −2 is the x coordinate; on an AKP key, −1 is the public key
- * and −2 is the private one. A parser that switches on the label alone reads
- * an ML-DSA public key as a curve identifier and says nothing. Everything here
- * therefore establishes the key type first and interprets the rest in its
- * light.
+ * and −2 is the private one; on an RSA key, −1 is the modulus and −2 the
+ * public exponent. A parser that switches on the label alone reads an ML-DSA
+ * public key as a curve identifier and says nothing. Everything here therefore
+ * establishes the key type first and interprets the rest in its light.
  *
  * On EC2 and OKP keys, coordinates and private keys are fixed-width byte
  * strings whose **leading zeroes must be preserved** [RFC 9053, Section
@@ -41,6 +41,7 @@ import { CoseError }                          from './errors.ts';
 import { MLDSA_SEED_SIZE, MLDSA_SIZES,
          mldsaPublicKeyFor }                  from './mldsa.ts';
 import type { MldsaParameterSet }             from './mldsa.ts';
+import type { RsaPrivateKey, RsaPublicKey }   from './rsa.ts';
 
 
 /** Key type 7, a key pair belonging to an algorithm rather than a curve. */
@@ -48,6 +49,9 @@ export const KEY_TYPE_AKP = 7;
 
 /** Key type 4, a shared secret [RFC 9053, Section 7.3]. */
 export const KEY_TYPE_SYMMETRIC = 4;
+
+/** Key type 3, an RSA key [RFC 8230, Section 4]. */
+export const KEY_TYPE_RSA = 3;
 
 
 /**
@@ -75,6 +79,21 @@ export const KeyLabel = {
     // third thing: the curve on an EC2 or OKP key, the public key on an AKP
     // one, and here the shared secret itself.
     k:             -1,
+
+    // RSA [RFC 8230, Section 4], where −1 means a fourth thing. Note −3 and
+    // −4 especially: the private exponent of an RSA key sits where the y
+    // coordinate of an EC2 key does, and its first prime factor where that
+    // key's private scalar does. Labels −9 to −12 belong to the multi-prime
+    // form, which a COSE key may carry and this implementation does not read.
+    n:             -1,
+    e:             -2,
+    rsaD:          -3,
+    p:             -4,
+    q:             -5,
+    dP:            -6,
+    dQ:            -7,
+    qInv:          -8,
+    other:         -9,
 } as const;
 
 
@@ -124,6 +143,13 @@ interface CoseKeyFields {
     pub:            Uint8Array | null;
     priv:           Uint8Array | null;
     k:              Uint8Array | null;
+    n:              Uint8Array | null;
+    e:              Uint8Array | null;
+    p:              Uint8Array | null;
+    q:              Uint8Array | null;
+    dP:             Uint8Array | null;
+    dQ:             Uint8Array | null;
+    qInv:           Uint8Array | null;
     additional:     readonly CborEntry[];
 }
 
@@ -150,6 +176,20 @@ export class CoseKey {
     /** Symmetric: the shared secret. There is no public half of one. */
     public readonly k:              Uint8Array | null;
 
+    /**
+     * RSA: the modulus, the public exponent and five of the seven parameters
+     * of a two-prime private key. The sixth is `d` above, which an EC2 key
+     * uses for its scalar — one field, two labels, told apart by the key type
+     * like everything else here.
+     */
+    public readonly n:              Uint8Array | null;
+    public readonly e:              Uint8Array | null;
+    public readonly p:              Uint8Array | null;
+    public readonly q:              Uint8Array | null;
+    public readonly dP:             Uint8Array | null;
+    public readonly dQ:             Uint8Array | null;
+    public readonly qInv:           Uint8Array | null;
+
     /** Header parameters this implementation does not know, kept for the round trip. */
     public readonly additional:     readonly CborEntry[];
 
@@ -166,6 +206,13 @@ export class CoseKey {
         this.pub            = fields.pub;
         this.priv           = fields.priv;
         this.k              = fields.k;
+        this.n              = fields.n;
+        this.e              = fields.e;
+        this.p              = fields.p;
+        this.q              = fields.q;
+        this.dP             = fields.dP;
+        this.dQ             = fields.dQ;
+        this.qInv           = fields.qInv;
         this.additional     = fields.additional;
     }
 
@@ -183,6 +230,13 @@ export class CoseKey {
             pub:            this.pub,
             priv:           this.priv,
             k:              this.k,
+            n:              this.n,
+            e:              this.e,
+            p:              this.p,
+            q:              this.q,
+            dP:             this.dP,
+            dQ:             this.dQ,
+            qInv:           this.qInv,
             additional:     this.additional,
         };
     }
@@ -345,6 +399,50 @@ export class CoseKey {
     }
 
 
+    /**
+     * An RSA private key from the eight parameters of RFC 8230 Section 4.
+     *
+     * All eight, because that is what a COSE key carries: "for private keys
+     * with two primes ... all other fields MUST be present". A private key
+     * without its CRT parameters is not a thing this format can hold, which is
+     * why they are required here rather than recomputed.
+     *
+     * Every parameter is written in the fewest octets that represent it, and
+     * leading zeroes a caller brought along — from a fixed-width buffer, as
+     * most RSA interfaces hand them out — are dropped on the way in.
+     */
+    public static fromRsaPrivateKey(key:   RsaPrivateKey,
+                                    parts: CoseKeyParts = {}): CoseKey {
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_RSA, parts),
+            n:     minimalInteger(key.n,    'modulus n'),
+            e:     minimalInteger(key.e,    'public exponent e'),
+            d:     minimalInteger(key.d,    'private exponent d'),
+            p:     minimalInteger(key.p,    'prime factor p'),
+            q:     minimalInteger(key.q,    'prime factor q'),
+            dP:    minimalInteger(key.dP,   'CRT exponent dP'),
+            dQ:    minimalInteger(key.dQ,   'CRT exponent dQ'),
+            qInv:  minimalInteger(key.qInv, 'CRT coefficient qInv'),
+        });
+
+    }
+
+
+    /** An RSA public key: the modulus, the public exponent, and nothing else. */
+    public static fromRsaPublicKey(n:     Uint8Array,
+                                   e:     Uint8Array,
+                                   parts: CoseKeyParts = {}): CoseKey {
+
+        return new CoseKey({
+            ...empty(KEY_TYPE_RSA, parts),
+            n:  minimalInteger(n, 'modulus n'),
+            e:  minimalInteger(e, 'public exponent e'),
+        });
+
+    }
+
+
     /** A public octet key pair, which is the whole of `x` and nothing else. */
     public static fromOkpPublicKey(curve: CoseCurve,
                                    x:     Uint8Array,
@@ -406,6 +504,9 @@ export class CoseKey {
 
         if (keyType === KEY_TYPE_SYMMETRIC)
             return CoseKey.parseSymmetric(value.entries, keyType);
+
+        if (keyType === KEY_TYPE_RSA)
+            return CoseKey.parseRsa(value.entries, keyType);
 
         return CoseKey.parseCurveKey(value.entries, keyType);
 
@@ -507,6 +608,13 @@ export class CoseKey {
             pub:   null,
             priv:  null,
             k:     null,
+            n:     null,
+            e:     null,
+            p:     null,
+            q:     null,
+            dP:    null,
+            dQ:    null,
+            qInv:  null,
             additional,
         });
 
@@ -578,6 +686,13 @@ export class CoseKey {
             pub:     null,
             priv:    null,
             k,
+            n:       null,
+            e:       null,
+            p:       null,
+            q:       null,
+            dP:      null,
+            dQ:      null,
+            qInv:    null,
             additional,
         });
 
@@ -647,6 +762,128 @@ export class CoseKey {
             pub,
             priv,
             k:     null,
+            n:     null,
+            e:     null,
+            p:     null,
+            q:     null,
+            dP:    null,
+            dQ:    null,
+            qInv:  null,
+            additional,
+        });
+
+    }
+
+
+    private static parseRsa(entries: readonly CborEntry[], keyType: number): CoseKey {
+
+        let keyIdentifier: Uint8Array | null    = null;
+        let algorithm:     CoseAlgorithm | null = null;
+        let keyOperations: CborValue | null     = null;
+        let n:             Uint8Array | null    = null;
+        let e:             Uint8Array | null    = null;
+        let d:             Uint8Array | null    = null;
+        let p:             Uint8Array | null    = null;
+        let q:             Uint8Array | null    = null;
+        let dP:            Uint8Array | null    = null;
+        let dQ:            Uint8Array | null    = null;
+        let qInv:          Uint8Array | null    = null;
+
+        const additional: CborEntry[] = [];
+
+        for (const [key, item] of entries) {
+
+            if (key.type !== 'int') {
+                additional.push([key, item]);
+                continue;
+            }
+
+            switch (Number(key.value)) {
+
+                case KeyLabel.keyType:
+                    break;
+
+                case KeyLabel.keyIdentifier:
+                    keyIdentifier = bytesOf(item, 'The key identifier of a COSE key');
+                    break;
+
+                case KeyLabel.algorithm:
+                    algorithm = algorithmFromCbor(item);
+                    break;
+
+                case KeyLabel.keyOperations:
+                    if (item.type !== 'array')
+                        throw new CoseError('The key operations of a COSE key must be an array!');
+                    keyOperations = item;
+                    break;
+
+                case KeyLabel.n:
+                    n = rsaInteger(item, 'modulus n');
+                    break;
+
+                case KeyLabel.e:
+                    e = rsaInteger(item, 'public exponent e');
+                    break;
+
+                case KeyLabel.rsaD:
+                    d = rsaInteger(item, 'private exponent d');
+                    break;
+
+                case KeyLabel.p:
+                    p = rsaInteger(item, 'prime factor p');
+                    break;
+
+                case KeyLabel.q:
+                    q = rsaInteger(item, 'prime factor q');
+                    break;
+
+                case KeyLabel.dP:
+                    dP = rsaInteger(item, 'CRT exponent dP');
+                    break;
+
+                case KeyLabel.dQ:
+                    dQ = rsaInteger(item, 'CRT exponent dQ');
+                    break;
+
+                case KeyLabel.qInv:
+                    qInv = rsaInteger(item, 'CRT coefficient qInv');
+                    break;
+
+                default:
+                    additional.push([key, item]);
+
+            }
+
+        }
+
+        // "For public keys, the fields 'n' and 'e' MUST be present"
+        // [RFC 8230, Section 4] — and a private key is a public key with more
+        // parameters rather than instead of them, so this holds for both. The
+        // CRT parameters are required of a private key by the same section and
+        // are checked where they are used, which is the one place that can say
+        // what was expected of them.
+        if (n === null || e === null)
+            throw new CoseError('A COSE key of key type RSA must carry its modulus n and its public exponent e [RFC 8230, Section 4]!');
+
+        return new CoseKey({
+            keyType,
+            keyIdentifier,
+            algorithm,
+            keyOperations,
+            curveId:  null,
+            x:        null,
+            y:        null,
+            d,
+            pub:      null,
+            priv:     null,
+            k:        null,
+            n,
+            e,
+            p,
+            q,
+            dP,
+            dQ,
+            qInv,
             additional,
         });
 
@@ -732,6 +969,36 @@ export class CoseKey {
 
         }
 
+        // The eight parameters of RFC 8230 Section 4, in the order of their
+        // labels, which for negative integers is also their encoded order.
+        else if (this.keyType === KEY_TYPE_RSA) {
+
+            if (this.n !== null)
+                entries.push([cbor.int(KeyLabel.n), cbor.bytes(this.n)]);
+
+            if (this.e !== null)
+                entries.push([cbor.int(KeyLabel.e), cbor.bytes(this.e)]);
+
+            if (this.d !== null)
+                entries.push([cbor.int(KeyLabel.rsaD), cbor.bytes(this.d)]);
+
+            if (this.p !== null)
+                entries.push([cbor.int(KeyLabel.p), cbor.bytes(this.p)]);
+
+            if (this.q !== null)
+                entries.push([cbor.int(KeyLabel.q), cbor.bytes(this.q)]);
+
+            if (this.dP !== null)
+                entries.push([cbor.int(KeyLabel.dP), cbor.bytes(this.dP)]);
+
+            if (this.dQ !== null)
+                entries.push([cbor.int(KeyLabel.dQ), cbor.bytes(this.dQ)]);
+
+            if (this.qInv !== null)
+                entries.push([cbor.int(KeyLabel.qInv), cbor.bytes(this.qInv)]);
+
+        }
+
         else {
 
             if (this.curveId !== null)
@@ -769,13 +1036,18 @@ export class CoseKey {
      * a form that contains only public members". Returning the key unchanged
      * here — which is what stripping `d` and `priv` from it would do — would
      * hand a caller the shared secret under a name promising the opposite.
+     *
+     * An RSA key loses six parameters rather than one, which is what RFC 8230
+     * Section 4 requires of a public key: "the fields 'n' and 'e' MUST be
+     * present. All other fields defined in the following table below MUST be
+     * absent."
      */
     public publicKey(): CoseKey {
 
         if (this.keyType === KEY_TYPE_SYMMETRIC)
             throw new CoseError('A COSE key of key type Symmetric has no public half [RFC 9053, Section 7.3]!');
 
-        return this.copy({ d: null, priv: null });
+        return this.copy({ d: null, priv: null, p: null, q: null, dP: null, dQ: null, qInv: null });
 
     }
 
@@ -811,6 +1083,9 @@ export class CoseKey {
 
         if (this.keyType === KEY_TYPE_SYMMETRIC)
             throw new CoseError('A COSE key of key type Symmetric has no public key [RFC 9053, Section 7.3]!');
+
+        if (this.keyType === KEY_TYPE_RSA)
+            throw new CoseError('The public key of a COSE key of key type RSA is a modulus and an exponent rather than one byte string: ask it for its verificationKey()!');
 
         if (this.keyType === KEY_TYPE_AKP) {
 
@@ -883,6 +1158,9 @@ export class CoseKey {
 
         }
 
+        if (this.keyType === KEY_TYPE_RSA)
+            throw new CoseError('The private key of a COSE key of key type RSA is eight parameters rather than one byte string: ask it for its signingKey()!');
+
         const curve     = this.requireCurve();
         const orderSize = curve.orderSize ?? 0;
 
@@ -896,6 +1174,36 @@ export class CoseKey {
             throw new CoseError(`The private key of this COSE key is not within the group order of the curve '${curve.name}'!`);
 
         return this.d;
+
+    }
+
+
+    /**
+     * The private key material a signature algorithm is handed: one value for
+     * EC2, OKP and AKP keys, and the eight parameters of RFC 8230 Section 4
+     * for an RSA key.
+     *
+     * Two shapes rather than one, because an RSA signature needs the modulus
+     * and the CRT parameters beside the private exponent — a scalar handed to
+     * it would be a key only in the sense that it is a number.
+     */
+    public signingKey(): Uint8Array | RsaPrivateKey {
+        return this.keyType === KEY_TYPE_RSA
+                   ? rsaPrivateKeyOf(this)
+                   : this.privateKeyBytes();
+    }
+
+
+    /** The public key material a verification is handed, in the same two shapes. */
+    public verificationKey(): Uint8Array | RsaPublicKey {
+
+        if (this.keyType !== KEY_TYPE_RSA)
+            return this.publicKeyBytes();
+
+        if (this.n === null || this.e === null)
+            throw new CoseError('A COSE key of key type RSA verifies with its modulus n and its public exponent e [RFC 8230, Section 4]!');
+
+        return { n: this.n, e: this.e };
 
     }
 
@@ -952,6 +1260,19 @@ export class CoseKey {
                 [cbor.int(KeyLabel.keyType),   cbor.int(this.keyType)],
                 [cbor.int(KeyLabel.algorithm), algorithmToCbor(this.algorithm)],
                 [cbor.int(KeyLabel.pub),       cbor.bytes(this.pub)],
+            ]), DETERMINISTIC);
+
+        }
+
+        if (this.keyType === KEY_TYPE_RSA) {
+
+            if (this.n === null || this.e === null)
+                throw new CoseError('The thumbprint of a COSE key of key type RSA needs its modulus and its public exponent!');
+
+            return cbor.encode(cbor.map([
+                [cbor.int(KeyLabel.keyType), cbor.int(this.keyType)],
+                [cbor.int(KeyLabel.n),       cbor.bytes(this.n)],
+                [cbor.int(KeyLabel.e),       cbor.bytes(this.e)],
             ]), DETERMINISTIC);
 
         }
@@ -1032,8 +1353,87 @@ function empty(keyType: number, parts: CoseKeyParts): CoseKeyFields {
         pub:            null,
         priv:           null,
         k:              null,
+        n:              null,
+        e:              null,
+        p:              null,
+        q:              null,
+        dP:             null,
+        dQ:             null,
+        qInv:           null,
         additional:     [],
     };
+}
+
+
+/**
+ * Read an RSA key parameter: a byte string holding an unsigned big-endian
+ * integer in "the minimum number of octets needed to represent the value"
+ * [RFC 8230, Section 4].
+ *
+ * This is the one encoding rule the parser enforces rather than leaving to the
+ * point of use, and the thumbprint is the reason: it is computed over these
+ * bytes as they stand, so a modulus with a leading zero and the same modulus
+ * without it would be two identities for one key. A leading zero is therefore
+ * refused here rather than stripped — unlike on the way in from a caller,
+ * where {@link minimalInteger} does strip it, because there the canonical form
+ * is this library's to produce.
+ */
+function rsaInteger(value: CborValue, what: string): Uint8Array {
+
+    const bytes = bytesOf(value, `The ${what} of an RSA key`);
+
+    if (bytes.length === 0 || bytes[0] === 0x00)
+        throw new CoseError(`The ${what} of an RSA key must be encoded in the minimum number of octets, without leading zeroes [RFC 8230, Section 4]!`);
+
+    return bytes;
+
+}
+
+
+/** An RSA parameter in the fewest octets that represent it, zero refused. */
+function minimalInteger(value: Uint8Array, what: string): Uint8Array {
+
+    let first = 0;
+
+    while (first < value.length && value[first] === 0x00)
+        first++;
+
+    if (first === value.length)
+        throw new CoseError(`The ${what} of an RSA key must not be zero!`);
+
+    return first === 0 ? value : value.slice(first);
+
+}
+
+
+/** The eight parameters of a two-prime RSA private key, or what is missing. */
+function rsaPrivateKeyOf(key: CoseKey): RsaPrivateKey {
+
+    const named = [['modulus n',            key.n],
+                   ['public exponent e',    key.e],
+                   ['private exponent d',   key.d],
+                   ['prime factor p',       key.p],
+                   ['prime factor q',       key.q],
+                   ['CRT exponent dP',      key.dP],
+                   ['CRT exponent dQ',      key.dQ],
+                   ['CRT coefficient qInv', key.qInv]] as const;
+
+    const missing = named.filter(([, value]) => value === null).map(([name]) => name);
+
+    if (missing.length > 0)
+        throw new CoseError(`A COSE key of key type RSA signs with every parameter of a two-prime private key [RFC 8230, Section 4], and this one carries no ${missing.join(' and no ')}!`);
+
+    return {
+        n:     key.n!,
+        e:     key.e!,
+        d:     key.d!,
+        p:     key.p!,
+        q:     key.q!,
+        dP:    key.dP!,
+        dQ:    key.dQ!,
+        qInv:  key.qInv!,
+    };
+
 }
 
 

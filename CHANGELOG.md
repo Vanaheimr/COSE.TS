@@ -8,6 +8,38 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **RSA signatures: PS256, PS384, PS512 [RFC 8230] and RS256, RS384, RS512
+  [RFC 8812].** The six algorithms Styx has had and this package did not,
+  which is what the cross-implementation suite measured as the last asymmetry
+  between the two. With them come key type **RSA** (3) and the eight
+  parameters of RFC 8230 Section 4 — `CoseKey.fromRsaPrivateKey`,
+  `CoseKey.fromRsaPublicKey`, the labels `−1` to `−8`, the RFC 9679 thumbprint
+  over key type, modulus and public exponent, and the minimum-octet encoding
+  those parameters travel in, a leading zero refused rather than stripped
+  because the thumbprint covers the bytes as they stand.
+- **`src/rsa.ts`**, which is the arithmetic: EMSA-PSS and EMSA-PKCS1-v1_5,
+  MGF1, and signing through the Chinese remainder theorem with a verification
+  of its own output before returning it, because a CRT exponentiation that
+  goes wrong in one half reveals the factors of the modulus. The modular
+  exponentiation is `@noble/curves`; the paddings are this package's, since
+  noble has no RSA and WebCrypto is the asynchronous road this library does
+  not take. **Neither is constant time** and pure-JavaScript RSA cannot be:
+  `BigInt` has no constant-time multiply, and a square-and-multiply follows
+  the exponent. For verifying that is no concern; where an attacker can
+  measure the signer, the signing key does not belong in this process.
+- **An RSASSA-PSS salt a caller can supply**, as `salt` on the signing
+  options. It defaults to zeroes, which keeps this package free of randomness
+  as every other algorithm here already is, and costs nothing: the salt is
+  recovered from the signature and never compared [RFC 8017, Section 9.1.2],
+  so no verifier can tell. Styx signs the same way when asked for
+  deterministic output, which is what lets the two be compared byte for byte.
+- `CoseKey.signingKey()` and `CoseKey.verificationKey()`, which hand a
+  signature algorithm the key material in whichever of the two shapes it
+  needs — one value, or the parameters of an RSA key. `privateKeyBytes()` and
+  `publicKeyBytes()` refuse an RSA key and name these two instead.
+
 ### Changed
 
 - **A Partial IV beside an IV is refused.** RFC 9052 Section 3.1 forbids the

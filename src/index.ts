@@ -95,11 +95,16 @@ export { isMldsaParameterSet, MLDSA_PARAMETER_SETS,
          mldsaVerify }                              from './mldsa.ts';
 export type { MldsaParameterSet }                   from './mldsa.ts';
 
+export { RSA_MINIMUM_MODULUS_BITS,
+         rsaSign, rsaVerify }                       from './rsa.ts';
+export type { RsaPrivateKey, RsaPublicKey,
+              RsaScheme }                           from './rsa.ts';
+
 export { CoseHeaders,
          verifyCriticalHeaderParameters,
          verifyInitializationVectors }              from './headers.ts';
 
-export { CoseKey, KEY_TYPE_AKP,
+export { CoseKey, KEY_TYPE_AKP, KEY_TYPE_RSA,
          KEY_TYPE_SYMMETRIC, KeyLabel }             from './key.ts';
 export type { CoseKeyParts }                        from './key.ts';
 
