@@ -618,10 +618,12 @@ function algorithmIdentifier(node: Asn1Node, what: string): { oid: string; param
  * 1.2 for `rsaEncryption` — and an absent parameter is accepted beside it,
  * which is the equivalence its Section 2 requires of every implementation for
  * the hash identifiers. Anything else is refused, and that much is this
- * implementation's own strictness: Bouncy
- * Castle, which is what the other side of the conformance suite reads
- * certificates with, does not look at the field at all for these identifiers.
- * A parameter nobody interprets is not the same thing as no parameter.
+ * implementation's own strictness with nothing to compare it against: a
+ * certificate carrying such a parameter consistently cannot be made by
+ * patching one, since the copy inside the `tbsCertificate` is covered by the
+ * signature and the copy beside it then contradicts that one. It has to be
+ * minted, and no encoder writes it. A parameter nobody interprets is still not
+ * the same thing as no parameter.
  */
 function expectNoParameters(identifier: { oid: string; parameters: Asn1Node | null },
                             what:       string): void {
