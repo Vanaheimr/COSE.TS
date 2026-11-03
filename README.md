@@ -151,7 +151,14 @@ the **32-byte seed**, not the expanded secret key, and the thumbprint covers
 it. One RFC 8230 particular: every RSA parameter travels in the fewest octets
 that represent it, and a leading zero is refused rather than stripped, because
 the thumbprint is computed over those bytes as they stand — one key would
-otherwise have two identities.
+otherwise have two identities. And one more: a key may have **more than two
+primes**, the further ones travelling as an array at label `−9` of maps of
+r_i, d_i and t_i. They are read and signed with, through the multi-prime steps
+of RFC 8017 Section 5.1.2; they never reach the thumbprint, which takes kty, n
+and e and nothing else; and the public half drops them with the rest, because
+each of them is a factor of the modulus. The form is optional in RFC 8230, and
+Styx declines it — it keeps the array, verifies with the modulus and refuses
+to sign — which the conformance suite records rather than judges.
 
 EdDSA is deterministic by construction; ML-DSA is not, and RFC 9964 does not
 choose. This library always takes the deterministic variant of FIPS 204, where

@@ -41,7 +41,8 @@ import { CoseError }                          from './errors.ts';
 import { MLDSA_SEED_SIZE, MLDSA_SIZES,
          mldsaPublicKeyFor }                  from './mldsa.ts';
 import type { MldsaParameterSet }             from './mldsa.ts';
-import type { RsaPrivateKey, RsaPublicKey }   from './rsa.ts';
+import type { RsaOtherPrime, RsaPrivateKey,
+              RsaPublicKey }                 from './rsa.ts';
 
 
 /** Key type 7, a key pair belonging to an algorithm rather than a curve. */
@@ -83,8 +84,7 @@ export const KeyLabel = {
     // RSA [RFC 8230, Section 4], where −1 means a fourth thing. Note −3 and
     // −4 especially: the private exponent of an RSA key sits where the y
     // coordinate of an EC2 key does, and its first prime factor where that
-    // key's private scalar does. Labels −9 to −12 belong to the multi-prime
-    // form, which a COSE key may carry and this implementation does not read.
+    // key's private scalar does.
     n:             -1,
     e:             -2,
     rsaD:          -3,
@@ -94,6 +94,16 @@ export const KeyLabel = {
     dQ:            -7,
     qInv:          -8,
     other:         -9,
+
+    // The three labels of a prime after the second. They are registered as
+    // key type parameters of RSA like the eight above [RFC 8230, Section
+    // 5.3], and they are the only ones here that never appear at the top
+    // level of a key: "each of the primes is represented as a map containing
+    // the fields 'r_i', 'd_i', and 't_i'", and `other` is the array of those
+    // maps.
+    rI:            -10,
+    dI:            -11,
+    tI:            -12,
 } as const;
 
 
@@ -150,6 +160,7 @@ interface CoseKeyFields {
     dP:             Uint8Array | null;
     dQ:             Uint8Array | null;
     qInv:           Uint8Array | null;
+    other:          CborValue | null;
     additional:     readonly CborEntry[];
 }
 
@@ -190,6 +201,18 @@ export class CoseKey {
     public readonly dQ:             Uint8Array | null;
     public readonly qInv:           Uint8Array | null;
 
+    /**
+     * RSA: the primes after the second, as they travel — an array of maps,
+     * kept whole rather than taken apart.
+     *
+     * Each map carries r_i, d_i and t_i, and may carry something this
+     * implementation has never heard of, which keeping the array whole is
+     * what preserves. The three it computes with are read where the signing
+     * key is assembled, the way `keyOperations` above is kept as it came and
+     * read where it is used.
+     */
+    public readonly other:          CborValue | null;
+
     /** Header parameters this implementation does not know, kept for the round trip. */
     public readonly additional:     readonly CborEntry[];
 
@@ -213,6 +236,7 @@ export class CoseKey {
         this.dP             = fields.dP;
         this.dQ             = fields.dQ;
         this.qInv           = fields.qInv;
+        this.other          = fields.other;
         this.additional     = fields.additional;
     }
 
@@ -237,6 +261,7 @@ export class CoseKey {
             dP:             this.dP,
             dQ:             this.dQ,
             qInv:           this.qInv,
+            other:          this.other,
             additional:     this.additional,
         };
     }
@@ -400,12 +425,16 @@ export class CoseKey {
 
 
     /**
-     * An RSA private key from the eight parameters of RFC 8230 Section 4.
+     * An RSA private key from the eight parameters of RFC 8230 Section 4, and
+     * the primes after the second where there are any.
      *
      * All eight, because that is what a COSE key carries: "for private keys
      * with two primes ... all other fields MUST be present". A private key
      * without its CRT parameters is not a thing this format can hold, which is
-     * why they are required here rather than recomputed.
+     * why they are required here rather than recomputed. A key with further
+     * primes carries all eight as well — "for private keys with more than two
+     * primes, all fields MUST be present" — and the further primes beside
+     * them, each in a map of its own.
      *
      * Every parameter is written in the fewest octets that represent it, and
      * leading zeroes a caller brought along — from a fixed-width buffer, as
@@ -424,6 +453,7 @@ export class CoseKey {
             dP:    minimalInteger(key.dP,   'CRT exponent dP'),
             dQ:    minimalInteger(key.dQ,   'CRT exponent dQ'),
             qInv:  minimalInteger(key.qInv, 'CRT coefficient qInv'),
+            other: otherPrimesToCbor(key.other),
         });
 
     }
@@ -615,6 +645,7 @@ export class CoseKey {
             dP:    null,
             dQ:    null,
             qInv:  null,
+            other: null,
             additional,
         });
 
@@ -693,6 +724,7 @@ export class CoseKey {
             dP:      null,
             dQ:      null,
             qInv:    null,
+            other:   null,
             additional,
         });
 
@@ -769,6 +801,7 @@ export class CoseKey {
             dP:    null,
             dQ:    null,
             qInv:  null,
+            other: null,
             additional,
         });
 
@@ -788,6 +821,7 @@ export class CoseKey {
         let dP:            Uint8Array | null    = null;
         let dQ:            Uint8Array | null    = null;
         let qInv:          Uint8Array | null    = null;
+        let other:         CborValue | null     = null;
 
         const additional: CborEntry[] = [];
 
@@ -849,6 +883,15 @@ export class CoseKey {
                     qInv = rsaInteger(item, 'CRT coefficient qInv');
                     break;
 
+                // Read for its shape and then kept as it came. The three
+                // parameters inside each map are read where they are computed
+                // with; what is refused here is the array being something
+                // other than primes.
+                case KeyLabel.other:
+                    otherPrimesOf(item);
+                    other = item;
+                    break;
+
                 default:
                     additional.push([key, item]);
 
@@ -884,6 +927,7 @@ export class CoseKey {
             dP,
             dQ,
             qInv,
+            other,
             additional,
         });
 
@@ -969,8 +1013,9 @@ export class CoseKey {
 
         }
 
-        // The eight parameters of RFC 8230 Section 4, in the order of their
-        // labels, which for negative integers is also their encoded order.
+        // The eight parameters of RFC 8230 Section 4 and the further primes
+        // after them, in the order of their labels, which for negative
+        // integers is also their encoded order.
         else if (this.keyType === KEY_TYPE_RSA) {
 
             if (this.n !== null)
@@ -996,6 +1041,9 @@ export class CoseKey {
 
             if (this.qInv !== null)
                 entries.push([cbor.int(KeyLabel.qInv), cbor.bytes(this.qInv)]);
+
+            if (this.other !== null)
+                entries.push([cbor.int(KeyLabel.other), this.other]);
 
         }
 
@@ -1037,17 +1085,19 @@ export class CoseKey {
      * here — which is what stripping `d` and `priv` from it would do — would
      * hand a caller the shared secret under a name promising the opposite.
      *
-     * An RSA key loses six parameters rather than one, which is what RFC 8230
-     * Section 4 requires of a public key: "the fields 'n' and 'e' MUST be
+     * An RSA key loses seven parameters rather than one, which is what RFC
+     * 8230 Section 4 requires of a public key: "the fields 'n' and 'e' MUST be
      * present. All other fields defined in the following table below MUST be
-     * absent."
+     * absent." The seventh is the `other` array, which is in that table like
+     * the rest and holds the most private thing in the key: a prime factor of
+     * the modulus.
      */
     public publicKey(): CoseKey {
 
         if (this.keyType === KEY_TYPE_SYMMETRIC)
             throw new CoseError('A COSE key of key type Symmetric has no public half [RFC 9053, Section 7.3]!');
 
-        return this.copy({ d: null, priv: null, p: null, q: null, dP: null, dQ: null, qInv: null });
+        return this.copy({ d: null, priv: null, p: null, q: null, dP: null, dQ: null, qInv: null, other: null });
 
     }
 
@@ -1360,6 +1410,7 @@ function empty(keyType: number, parts: CoseKeyParts): CoseKeyFields {
         dP:             null,
         dQ:             null,
         qInv:           null,
+        other:          null,
         additional:     [],
     };
 }
@@ -1406,7 +1457,69 @@ function minimalInteger(value: Uint8Array, what: string): Uint8Array {
 }
 
 
-/** The eight parameters of a two-prime RSA private key, or what is missing. */
+/**
+ * The primes after the second, out of the array they travel in.
+ *
+ * What this refuses is a key that claims the multi-prime form and does not
+ * carry it. An empty array is such a key: RFC 8230 Section 4 lets a two-prime
+ * key have no `other` field at all — "the fields 'other', 'r_i', 'd_i', and
+ * 't_i' MUST be absent" — so an array of no primes is not the two-prime form
+ * written differently. It is a key saying it has further primes and naming
+ * none.
+ */
+function otherPrimesOf(value: CborValue): readonly RsaOtherPrime[] {
+
+    if (value.type !== 'array')
+        throw new CoseError('The further primes of a multi-prime RSA key must be an array of maps [RFC 8230, Section 4]!');
+
+    if (value.items.length === 0)
+        throw new CoseError('The further primes of a multi-prime RSA key must name at least one prime, or the field must be absent [RFC 8230, Section 4]!');
+
+    return value.items.map((item, index) => {
+
+        const which = `of prime ${String(3 + index)}`;
+
+        if (item.type !== 'map')
+            throw new CoseError(`The further primes of a multi-prime RSA key are maps, and the entry ${which} is not one [RFC 8230, Section 4]!`);
+
+        const required = (label: number, what: string): Uint8Array => {
+
+            const found = item.entries.find(([key]) => key.type === 'int' && Number(key.value) === label);
+
+            if (found === undefined)
+                throw new CoseError(`A prime of a multi-prime RSA key carries r_i, d_i and t_i [RFC 8230, Section 4], and the map ${which} carries no ${what}!`);
+
+            return rsaInteger(found[1], `${what} ${which}`);
+
+        };
+
+        return {
+            r:  required(KeyLabel.rI, 'prime factor r_i'),
+            d:  required(KeyLabel.dI, 'exponent d_i'),
+            t:  required(KeyLabel.tI, 'CRT coefficient t_i'),
+        };
+
+    });
+
+}
+
+
+/** The further primes of a caller's key, as the array they travel in. */
+function otherPrimesToCbor(primes: readonly RsaOtherPrime[] | undefined): CborValue | null {
+
+    if (primes === undefined || primes.length === 0)
+        return null;
+
+    return cbor.array(primes.map(prime => cbor.map([
+        [cbor.int(KeyLabel.rI), cbor.bytes(minimalInteger(prime.r, 'prime factor r_i'))],
+        [cbor.int(KeyLabel.dI), cbor.bytes(minimalInteger(prime.d, 'exponent d_i'))],
+        [cbor.int(KeyLabel.tI), cbor.bytes(minimalInteger(prime.t, 'CRT coefficient t_i'))],
+    ])));
+
+}
+
+
+/** The eight parameters of an RSA private key and its further primes, or what is missing. */
 function rsaPrivateKeyOf(key: CoseKey): RsaPrivateKey {
 
     const named = [['modulus n',            key.n],
@@ -1432,6 +1545,7 @@ function rsaPrivateKeyOf(key: CoseKey): RsaPrivateKey {
         dP:    key.dP!,
         dQ:    key.dQ!,
         qInv:  key.qInv!,
+        other: key.other === null ? undefined : otherPrimesOf(key.other),
     };
 
 }

@@ -97,8 +97,8 @@ export type { MldsaParameterSet }                   from './mldsa.ts';
 
 export { RSA_MINIMUM_MODULUS_BITS,
          rsaSign, rsaVerify }                       from './rsa.ts';
-export type { RsaPrivateKey, RsaPublicKey,
-              RsaScheme }                           from './rsa.ts';
+export type { RsaOtherPrime, RsaPrivateKey,
+              RsaPublicKey, RsaScheme }             from './rsa.ts';
 
 export { CoseHeaders,
          verifyCriticalHeaderParameters,

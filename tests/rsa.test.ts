@@ -23,12 +23,17 @@
  * may use the platform, and here the platform is the point.
  *
  * The key is a fixed 2048-bit one of this suite's own, printed in full, and
- * the same key the conformance vectors carry. It secures nothing.
+ * the same key the conformance vectors carry. It secures nothing. A second
+ * one, further down, has three prime factors rather than two — the
+ * multi-prime form of RFC 8230 Section 4, which nothing in reach generates
+ * and OpenSSL does. It secures nothing either, and every claim it makes
+ * about itself is recomputed below from the parameters printed here.
  */
 
 import { constants, createPrivateKey,
          createPublicKey, sign, verify }       from 'node:crypto';
 
+import { pow }                                 from '@noble/curves/abstract/modular.js';
 import { describe, expect, it }                from 'vitest';
 
 import { cbor, CoseAlgorithms, CoseCurves,
@@ -432,6 +437,302 @@ describe('RSA keys [RFC 8230, Section 4]', () => {
 
         expect(() => rsaSign('sha256', 'pkcs1', { ...RSA, q: RSA.p }, CONTENT))
             .toThrow(/do not multiply to its modulus/u);
+
+    });
+
+});
+
+
+// ------------------------------------------------- the multi-prime form ---
+
+/**
+ * A 2048-bit key with three prime factors, and never a secret.
+ *
+ * Nothing in reach generates one. `@noble` has no RSA at all; Bouncy Castle's
+ * private key class is the two-prime CRT one; .NET has no multi-prime form
+ * either. OpenSSL does — `openssl genrsa -primes 3 2048` — and this is its
+ * output, read out of a PKCS #1 structure whose version field is 1 rather
+ * than 0 for exactly this reason.
+ *
+ * `t` is the field worth reading twice: it does not invert this prime but
+ * everything before it, "(r_1 * r_2 * ... * r_(i-1))^(-1) mod r_i" [RFC 8230,
+ * Section 4], so here it inverts p·q modulo r_3.
+ */
+const MULTI_PRIME: RsaPrivateKey = {
+    n:    unhex('BCB36284D8B8480ECD5173C3A45C735FEAC58571FADA993CA377A1E0819304B8' +
+                '2DAFE070FD80803B4090422958205E01384EE6F7A24FD4FB9B914E8157BF2887' +
+                '4D29B755E5E179BF7576B27DD8BB184BD1F5519D18FA98CCCB53F782A3782732' +
+                '80B5DF3EBB5EF18D10F1C55CB5EF77ACCBD4674DBDF67B2AB49A406B31021E52' +
+                '532A5C3EB4FDAC93EA122B3145933195C33F87F94D313D6CFD65E102A54BB5F1' +
+                '11E208FABAF4A2B4BF11A5B9357495EF423B38718C0EFD59E1E4ADC3450C4E3C' +
+                '406EF4AA78CE935A98C4AECDF27AED1F3971CED402A26481300D9562F4E14264' +
+                '770D9BE4D1652EE4D046DD51658B61747C23406E02CA752D8683C5C75EEBA903'),
+    e:    unhex('010001'),
+    d:    unhex('3CA58EA95199D096E9481F63A6848C142CB934CD5029478CA4A10366CB5E3BEB' +
+                '11CBEFDF80A9F70C941089230E8EC087B5D82E0532A663B645E66A8BC96EC790' +
+                'CCACF69E65D694B18308160FBA434F68B6DF184EDC20F483812F7D86F6E25DF7' +
+                '758ED38495C543AF5193303FE02FD5059A0FF034F68C6FFAD9D93D56A56C96AD' +
+                '1B6DB544206E3BEFC36B248029B25A2492525BE2809B98D360E55619B4904430' +
+                '38CC5CF9ADEE12357AA9B5465331862A363317E8B2B56CECF239AD5E76E56FEB' +
+                'E1A285E53C06C9C1AB5988538734E23CD44F240F5B1AB2BFEB17E31B0FEAD63F' +
+                '4D2445FF22C0DD19C177777E724629507F2262E66204C4A93691778A7E330421'),
+    p:    unhex('079AA5EA2806BF86F41F00AFDD13CD547AD64B3E9BC86E7DE108D7D7F4B50157' +
+                '49E145FC5AAAAD00CBD140083154B1C9F7B561E6D8B07C34E156EC7CCFDBECE6' +
+                '4ABAF76834221D80CB905CFB1A9701379A45244A7FF5'),
+    q:    unhex('077E3CB613734832ADD09A392A27135A76C45C99095F25C578D1EC42D84B6CEF' +
+                'AD7A96975BAE84D04291809BB828D99803BE4634E40BE655D13C123103326F88' +
+                'D491FF2EB28786ECC31386DB793EA981EE0F78EFF0AD'),
+    dP:   unhex('0294A7AE7A7B1FD14B54A2450D40C534E0A38DD1E7C8F446E072C1DE56FC7F42' +
+                '029EE3C3AB79B55149DAF062576BA913247078938203138456DDCB50E8B2790A' +
+                '075EC0CCAAB4D1527EC3B5EABAB1790647E32357ED69'),
+    dQ:   unhex('0200377DF71BA57FC2E21D0C7EB1087DF390E39909E39A566CB8C179E7FFDC0A' +
+                'F42BF3E25EDCEF221D64750F1FD1E8A8AAF738100F850DF0847AA1F0EC859F3A' +
+                'CE685DD7BE5C6A2EF6B8541E6EF5C895A55804572DD1'),
+    qInv: unhex('0531B5EA58EBCEFD727D60B34FB58442E5E3AB2813ACE337AAA42AC769A9294F' +
+                'CAA6F4A1D6BB413D2C405ABA36E5BF05F6EB5CA775BEFD3917CA6C6AFEDB59DA' +
+                '29A9EC3F4DD6DB5633441465CF01654C66DF2E5297E6'),
+    other: [{
+        r:  unhex('034FD1F20CBE22ED6B924FF7C1C9E82402974866447E3FE1AC70CCD2F81CDA5D' +
+                  '23DA0CC1C8B50407CFB6F0AD3F9C35B3F459FB8CE68CB6025BBD758E4F032154' +
+                  'FCF1DC218A12E267C326D4CBE701ED76C27C05AC6253'),
+        d:  unhex('013040F8AB6804A2CD6AE975D13EC3274122C761A40CE6A1F73F57D21226509B' +
+                  '0245BB3443F1EA2B5F789870A4164C13738A6342D26E06D75BD2E700160CDA86' +
+                  '646BEB82C1C93B24DF9CECDAEBE0FE36135F6CADCB6F'),
+        t:  unhex('E792A46FF2BC4C7C0CA3F0516FE2201094C6DEFB78E91B7007C64F45D48D3328' +
+                  '172E1AE52C658A801A89B8AD535922EEF2875D149B98CF0F6F5C11E42284F8F9' +
+                  'E9BB76A870BA39D963229CE9189D9958CCDDFF3998'),
+    }],
+};
+
+
+/** The same eleven numbers, as Node takes them: `oth` is RFC 7518's name for the array. */
+const nodeMultiPrime = createPrivateKey({
+                           format:  'jwk',
+                           key:     {
+                               kty:  'RSA',
+                               n:    asJwk(MULTI_PRIME.n),
+                               e:    asJwk(MULTI_PRIME.e),
+                               d:    asJwk(MULTI_PRIME.d),
+                               p:    asJwk(MULTI_PRIME.p),
+                               q:    asJwk(MULTI_PRIME.q),
+                               dp:   asJwk(MULTI_PRIME.dP),
+                               dq:   asJwk(MULTI_PRIME.dQ),
+                               qi:   asJwk(MULTI_PRIME.qInv),
+                               oth:  MULTI_PRIME.other!.map(prime => ({
+                                         r:  asJwk(prime.r),
+                                         d:  asJwk(prime.d),
+                                         t:  asJwk(prime.t),
+                                     })),
+                           },
+                       });
+
+const nodeMultiPrimePublic = createPublicKey(nodeMultiPrime);
+
+/** An RSA parameter as the integer it is. */
+const number = (value: Uint8Array): bigint => BigInt(`0x${hex(value)}`);
+
+/** The further primes of {@link MULTI_PRIME}, which are one. */
+const THIRD = MULTI_PRIME.other![0]!;
+
+
+describe('a key with three primes [RFC 8230, Section 4]', () => {
+
+    it('is the key it says it is', () => {
+
+        // Everything these parameters claim, recomputed from them. Without
+        // this the whole family would rest on one invocation of a key
+        // generator, which is not something a reader of the file can check.
+        const n = number(MULTI_PRIME.n);
+        const d = number(MULTI_PRIME.d);
+        const p = number(MULTI_PRIME.p);
+        const q = number(MULTI_PRIME.q);
+        const r = number(THIRD.r);
+
+        expect(p * q * r).toBe(n);
+        expect(number(MULTI_PRIME.dP)).toBe(d % (p - BigInt(1)));
+        expect(number(MULTI_PRIME.dQ)).toBe(d % (q - BigInt(1)));
+        expect(number(THIRD.d)).toBe(d % (r - BigInt(1)));
+
+        // qInv inverts q modulo p, and t_3 inverts p·q modulo r_3.
+        expect(number(MULTI_PRIME.qInv) * q % p).toBe(BigInt(1));
+        expect(number(THIRD.t) * (p * q) % r).toBe(BigInt(1));
+
+        // Three primes of 683, 683 and 682 bits, and the modulus Section 6.1
+        // asks for as a minimum.
+        expect([p, q, r].map(value => value.toString(2).length)).toStrictEqual([683, 683, 682]);
+        expect(n.toString(2).length).toBe(2048);
+
+    });
+
+    for (const row of PKCS1) {
+
+        it(`produces with ${row.name} the very bytes Node produces`, () => {
+
+            const mine   = rsaSign(row.hash, 'pkcs1', MULTI_PRIME, CONTENT);
+            const theirs = Uint8Array.from(sign(row.hash, CONTENT, nodeMultiPrime));
+
+            expect(hex(mine)).toBe(hex(theirs));
+            expect(rsaVerify(row.hash, 'pkcs1', MULTI_PRIME, CONTENT, theirs)).toBe(true);
+
+        });
+
+    }
+
+    it('signs with PS256 what Node verifies, and verifies what Node signs', () => {
+
+        const mine   = rsaSign('sha256', 'pss', MULTI_PRIME, CONTENT);
+        const theirs = Uint8Array.from(sign('sha256', CONTENT,
+                                            { key: nodeMultiPrime, ...PSS_PADDING }));
+
+        expect(verify('sha256', CONTENT, { key: nodeMultiPrimePublic, ...PSS_PADDING }, mine)).toBe(true);
+        expect(rsaVerify('sha256', 'pss', MULTI_PRIME, CONTENT, theirs)).toBe(true);
+
+    });
+
+    it('joins three primes into the number one exponentiation with d gives', () => {
+
+        // What steps ii and v of RFC 8017 Section 5.1.2 are: an optimization
+        // of the first form of RSASP1, s = m^d mod n, which is the definition
+        // they have to agree with. The encoded message is recovered from the
+        // signature with the public exponent, so the padding is not
+        // reimplemented here.
+        const n         = number(MULTI_PRIME.n);
+        const signature = number(rsaSign('sha256', 'pkcs1', MULTI_PRIME, CONTENT));
+        const message   = pow(signature, number(MULTI_PRIME.e), n);
+
+        expect(pow(message, number(MULTI_PRIME.d), n)).toBe(signature);
+
+    });
+
+    it('refuses a third prime that does not belong to the modulus', () => {
+
+        // The sentence counts the primes, because the two-prime one would
+        // mislead here: p·q is not the modulus of this key and is not meant
+        // to be. What this catches is a prime that was mistyped.
+        expect(() => rsaSign('sha256', 'pkcs1',
+                             { ...MULTI_PRIME, other: [{ ...THIRD, r: MULTI_PRIME.p }] },
+                             CONTENT))
+            .toThrow(/The 3 prime factors of this multi-prime RSA private key do not multiply/u);
+
+    });
+
+    it('is refused outright when its primes are read as two', () => {
+
+        // Which is the arrangement this package had before it read the form:
+        // the eight parameters taken alone describe a key whose primes do not
+        // multiply to its modulus, and that is the sentence it got.
+        const { other, ...twoPrime } = MULTI_PRIME;
+
+        expect(other).toBeDefined();
+        expect(() => rsaSign('sha256', 'pkcs1', twoPrime, CONTENT))
+            .toThrow(/The prime factors of this RSA private key do not multiply/u);
+
+    });
+
+});
+
+
+describe('a COSE key with three primes', () => {
+
+    const keyOf = (): CoseKey =>
+        CoseKey.fromRsaPrivateKey(MULTI_PRIME, { algorithm: CoseAlgorithms.PS256 });
+
+    const labelsOf = (key: CoseKey): number[] => {
+
+        const value = key.toCbor();
+
+        if (value.type !== 'map')
+            throw new Error('unreachable');
+
+        return value.entries.map(([label]) => label.type === 'int' ? Number(label.value) : NaN);
+
+    };
+
+    it('writes the array at label -9, after the eight', () => {
+
+        expect(labelsOf(keyOf()))
+            .toStrictEqual([KeyLabel.keyType, KeyLabel.algorithm,
+                            KeyLabel.n, KeyLabel.e, KeyLabel.rsaD,
+                            KeyLabel.p, KeyLabel.q, KeyLabel.dP, KeyLabel.dQ,
+                            KeyLabel.qInv, KeyLabel.other]);
+
+    });
+
+    it('survives a round trip through its own bytes', () => {
+
+        const bytes = keyOf().toBytes();
+
+        expect(hex(CoseKey.parse(bytes).toBytes())).toBe(hex(bytes));
+
+    });
+
+    it('signs and verifies through the COSE layer', () => {
+
+        const key     = keyOf();
+        const message = CoseSign1.sign(CONTENT, key);
+
+        expect(message.signature.length).toBe(MULTI_PRIME.n.length);
+        expect(CoseSign1.parse(message.toBytes()).verify(key.publicKey()).verified).toBe(true);
+
+    });
+
+    it('drops the further primes from its public half', () => {
+
+        // "For public keys, the fields 'n' and 'e' MUST be present. All other
+        // fields defined in the following table below MUST be absent" [RFC
+        // 8230, Section 4] — and `other` is in that table, holding a prime
+        // factor of the modulus, which is the most private thing in the key.
+        expect(labelsOf(keyOf().publicKey()))
+            .toStrictEqual([KeyLabel.keyType, KeyLabel.algorithm, KeyLabel.n, KeyLabel.e]);
+
+    });
+
+    it('keeps the further primes out of its thumbprint', () => {
+
+        // RFC 9679 Section 4.3 names kty, n and e and nothing else, so a
+        // three-prime key and the two-prime reading of it are one identity.
+        const { other, ...twoPrime } = MULTI_PRIME;
+
+        expect(other).toBeDefined();
+        expect(hex(keyOf().thumbprint()))
+            .toBe(hex(CoseKey.fromRsaPrivateKey(twoPrime, { algorithm: CoseAlgorithms.PS256 }).thumbprint()));
+
+    });
+
+    const rsaKey = (other: ReturnType<typeof cbor.array>): unknown => cbor.map([
+        [cbor.int(KeyLabel.keyType), cbor.int(KEY_TYPE_RSA)],
+        [cbor.int(KeyLabel.n),       cbor.bytes(MULTI_PRIME.n)],
+        [cbor.int(KeyLabel.e),       cbor.bytes(MULTI_PRIME.e)],
+        [cbor.int(KeyLabel.other),   other],
+    ]);
+
+    it('refuses an array that names no prime at all', () => {
+
+        // A two-prime key must not carry the field: "the fields 'other',
+        // 'r_i', 'd_i', and 't_i' MUST be absent". So an empty array is not
+        // the two-prime form spelled differently — it is a key saying it has
+        // further primes and naming none.
+        expect(() => CoseKey.parse(rsaKey(cbor.array([])) as Parameters<typeof CoseKey.parse>[0]))
+            .toThrow(/must name at least one prime, or the field must be absent/u);
+
+    });
+
+    it('refuses a prime that is missing one of its three fields', () => {
+
+        const incomplete = cbor.array([cbor.map([
+            [cbor.int(KeyLabel.rI), cbor.bytes(THIRD.r)],
+            [cbor.int(KeyLabel.dI), cbor.bytes(THIRD.d)],
+        ])]);
+
+        expect(() => CoseKey.parse(rsaKey(incomplete) as Parameters<typeof CoseKey.parse>[0]))
+            .toThrow(/carries no CRT coefficient t_i/u);
+
+    });
+
+    it('refuses an array of something that is not a prime', () => {
+
+        expect(() => CoseKey.parse(rsaKey(cbor.array([cbor.int(3)])) as Parameters<typeof CoseKey.parse>[0]))
+            .toThrow(/the entry of prime 3 is not one/u);
 
     });
 

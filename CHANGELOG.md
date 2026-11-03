@@ -22,6 +22,21 @@ Until 1.0.0 the public API may change in minor releases.
   message is held to it by `resolveAlgorithm`, where every other restricted
   key type is held to its own. Where they are absent, nothing is attached, for
   the reason under *Development* below.
+- **RSA keys with more than two primes [RFC 8230, Section 4].** The further
+  primes travel as an array at label −9, each a map of r_i, d_i and t_i at
+  −10, −11 and −12, and a key carrying them is now signed with rather than
+  refused: RSASP1 runs the multi-prime steps of RFC 8017 Section 5.1.2 — one
+  more exponentiation per prime, then the two-prime join repeated — and the
+  fault check that already verified every signature before returning it covers
+  them as it covers the rest. `RsaPrivateKey` gains an optional `other` of
+  `RsaOtherPrime` (`r`, `d`, `t`), `CoseKey.fromRsaPrivateKey` writes it, and
+  `CoseKey.other` keeps the array as it travelled, the way `keyOperations` is
+  kept. Signatures with RS256, RS384 and RS512 come out byte for byte as
+  OpenSSL's for the same three-prime key, and PS256 verifies both ways. A key
+  that carries the field and names no prime is refused, because a two-prime
+  key must not carry it at all, and so is a prime missing one of its three
+  fields. The form is optional — the section "provides support" for it and
+  requires it of nobody — and Styx refuses it by design.
 
 ### Changed
 
@@ -35,6 +50,22 @@ Until 1.0.0 the public API may change in minor releases.
   certificate the specification allows. The refusals of a key's parameters read
   "holds a key restricted to RSASSA-PSS parameters that …" where a signature's
   read "was signed with …"; the seven conditions behind them are the same.
+
+### Fixed
+
+- **The public half of an RSA key now drops the further primes.** `publicKey()`
+  removed the six private parameters it knew and kept the `other` array, which
+  until now travelled among the parameters this package did not know — so a
+  three-prime key's "public" half handed out its third prime, a factor of the
+  modulus. RFC 8230 Section 4 says of a public key that "all other fields
+  defined in the following table below MUST be absent", and `other` is in that
+  table. No release published a key that could reach it through this
+  package's own constructors; a parsed one could.
+- **A key whose primes were read as two got the wrong sentence.** A three-prime
+  key used to be refused with "The prime factors of this RSA private key do
+  not multiply to its modulus!", which blamed the key for a form this package
+  did not read. The check now multiplies every prime the key names and counts
+  them in what it says.
 
 ### Development
 

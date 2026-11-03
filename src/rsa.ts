@@ -33,12 +33,14 @@
  * measure the signer, the signing key does not belong in this process.
  *
  * Signing goes through the Chinese remainder theorem, about four times faster
- * than one exponentiation with `d`, and then verifies its own output before
- * returning it. That second step is not ceremony: a CRT exponentiation that
- * goes wrong in one of its two halves — a flipped bit, a faulty machine —
- * hands whoever receives the signature the factorization of the modulus
- * (Boneh, DeMillo and Lipton, 1997). One exponentiation with a tiny public
- * exponent turns that into an error.
+ * than one exponentiation with `d` — for a multi-prime key with one more
+ * exponentiation per prime, which is the whole benefit RFC 8230 Section 4
+ * names for the form — and then verifies its own output before returning
+ * it. That second step is not ceremony: a CRT exponentiation that goes
+ * wrong in one of its halves — a flipped bit, a faulty machine — hands
+ * whoever receives the signature the factorization of the modulus (Boneh,
+ * DeMillo and Lipton, 1997). One exponentiation with a tiny public exponent
+ * turns that into an error.
  */
 
 import { mod, pow }                      from '@noble/curves/abstract/modular.js';
@@ -79,9 +81,40 @@ export interface RsaPublicKey {
 
 
 /**
- * An RSA private key with two primes, which is every private key RFC 8230
- * Section 4 allows into a COSE key without the multi-prime `other` array: all
- * of n, e, d, p, q, dP, dQ and qInv are present, so nothing here is optional.
+ * One of the primes after the second, which is one map of the `other` array:
+ * labels −10, −11 and −12 of RFC 8230 Section 4.
+ *
+ * `t` is the field that is easy to get wrong, because it does not invert this
+ * prime. It is "the CRT coefficient t_i = (r_1 * r_2 * ... * r_(i-1))^(-1) mod
+ * r_i", so for the third prime it is the inverse of p·q modulo r_3 — the
+ * product of everything joined before it, which is what step v of RFC 8017
+ * Section 5.1.2 needs it for.
+ */
+export interface RsaOtherPrime {
+
+    /** The prime factor r_i of n (label −10). */
+    readonly r:  Uint8Array;
+
+    /** d_i, which is d mod (r_i − 1) (label −11). */
+    readonly d:  Uint8Array;
+
+    /** The CRT coefficient t_i (label −12). */
+    readonly t:  Uint8Array;
+
+}
+
+
+/**
+ * An RSA private key: all eight parameters of RFC 8230 Section 4, and for a
+ * multi-prime key the primes after the second beside them.
+ *
+ * None of the eight is optional, because that section does not make them
+ * optional — "for private keys with two primes, the fields 'other', 'r_i',
+ * 'd_i', and 't_i' MUST be absent; all other fields MUST be present" — and a
+ * third prime adds to the list rather than replacing part of it: "for private
+ * keys with more than two primes, all fields MUST be present". So `p` and `q`
+ * are the first two primes in both forms, and `other` is the only thing that
+ * tells them apart.
  */
 export interface RsaPrivateKey extends RsaPublicKey {
 
@@ -102,6 +135,16 @@ export interface RsaPrivateKey extends RsaPublicKey {
 
     /** The CRT coefficient qInv, which is q^(−1) mod p (label −8). */
     readonly qInv:  Uint8Array;
+
+    /**
+     * The third to nth primes (label −9), absent for a two-prime key.
+     *
+     * Absent and empty are not the same thing to RFC 8230: a two-prime key
+     * must not carry this field at all, so an empty array would be a key
+     * claiming further primes and naming none. The reader refuses that one;
+     * here it is simply the two-prime case.
+     */
+    readonly other?:  readonly RsaOtherPrime[];
 
 }
 
@@ -301,22 +344,58 @@ function pssVerify(hash:        DigestAlgorithm,
 }
 
 
-/** RSASP1 through the Chinese remainder theorem [RFC 8017, Section 5.1.2]. */
+/**
+ * RSASP1 through the Chinese remainder theorem [RFC 8017, Section 5.1.2],
+ * including the two steps that section adds for a key with more than two
+ * primes.
+ *
+ * Steps i, iii and iv are the whole of a two-prime signature and are what a
+ * two-prime key still runs, unchanged: `other` is empty, the loop does not
+ * execute, and nothing below costs it anything. Steps ii and v are the
+ * multi-prime form — one more exponentiation modulo each further prime, and
+ * then the same join as for two primes, once per prime.
+ */
 function exponentiate(key: RsaPrivateKey, m: bigint, n: bigint): bigint {
 
-    const p = bytesToNumberBE(key.p);
-    const q = bytesToNumberBE(key.q);
+    const p      = bytesToNumberBE(key.p);
+    const q      = bytesToNumberBE(key.q);
+    const others = key.other ?? [];
 
-    // One multiplication, and it turns a mistyped parameter into a sentence
-    // rather than into the fault-attack error below.
-    if (p * q !== n)
-        throw new CoseError('The prime factors of this RSA private key do not multiply to its modulus!');
+    // One multiplication per prime, and it turns a mistyped parameter into a
+    // sentence rather than into the fault-attack error below. It is also what
+    // stops a three-prime key whose further primes were lost on the way: p·q
+    // alone is then not the modulus, and the two-prime join would give a
+    // number still smaller than it — one that travels as a signature and
+    // verifies nowhere.
+    const product = others.reduce((value, other) => value * bytesToNumberBE(other.r), p * q);
 
+    if (product !== n)
+        throw new CoseError(others.length === 0
+                                ? 'The prime factors of this RSA private key do not multiply to its modulus!'
+                                : `The ${String(2 + others.length)} prime factors of this multi-prime RSA private key do not multiply to its modulus!`);
+
+    // Step i.
     const m1 = pow(mod(m, p), bytesToNumberBE(key.dP), p);
     const m2 = pow(mod(m, q), bytesToNumberBE(key.dQ), q);
-    const h  = mod((m1 - m2) * bytesToNumberBE(key.qInv), p);
 
-    return m2 + q * h;
+    // Steps iii and iv, which are the signature itself when there are two.
+    let s = m2 + q * mod((m1 - m2) * bytesToNumberBE(key.qInv), p);
+
+    // Steps ii and v, once per further prime, where R is the product of the
+    // primes already joined and starts at r_1, which is p.
+    let R = p;
+
+    for (const [index, other] of others.entries()) {
+
+        const r  = bytesToNumberBE(other.r);
+        const mi = pow(mod(m, r), bytesToNumberBE(other.d), r);
+
+        R *= index === 0 ? q : bytesToNumberBE(others[index - 1]!.r);
+        s += R * mod((mi - s) * bytesToNumberBE(other.t), r);
+
+    }
+
+    return s;
 
 }
 
