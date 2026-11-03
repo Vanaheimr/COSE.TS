@@ -752,6 +752,157 @@ describe('RSASSA-PSS says which PSS it is beside the identifier', () => {
 });
 
 
+describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', () => {
+
+    /** The identifier the corpus writes, which every RSA certificate in it carries. */
+    const RSA_ENCRYPTION = '300D06092A864886F70D0101010500';
+
+    /**
+     * `rsaMeter` with its subject public key algorithm replaced, and the three
+     * lengths above it redone.
+     *
+     * The `patched` helper above cannot reach this one: an identifier naming
+     * its parameters is longer than `rsaEncryption`'s and one omitting them is
+     * shorter, so the subject public key info, the TBSCertificate and the
+     * certificate itself all change length. Nothing is signed again, and
+     * nothing needs to be - `X509Certificate.parse` reads a certificate and
+     * does not verify it, so what these tests hand it is a certificate whose
+     * every length is right and whose body no longer matches its signature,
+     * which is precisely the input the reader sees before any issuer's key
+     * could be applied to it. A certificate consistent all the way down is
+     * what the conformance suite mints, where the other implementation can be
+     * asked about it as well.
+     */
+    const withKeyAlgorithm = (identifier: string): Uint8Array => {
+
+        const whole = certificates.rsaMeter!;
+        const at    = whole.indexOf(RSA_ENCRYPTION);
+
+        if (at < 0 || whole.includes(RSA_ENCRYPTION, at + 1))
+            throw new Error('rsaMeter does not hold exactly one rsaEncryption identifier!');
+
+        const grew = (identifier.length - RSA_ENCRYPTION.length) / 2;
+
+        const relength = (source: string, start: number): string => {
+
+            if (source.slice(start, start + 4) !== '3082')
+                throw new Error(`The record at ${String(start)} is not a two-octet SEQUENCE!`);
+
+            const length = parseInt(source.slice(start + 4, start + 8), 16) + grew;
+
+            return source.slice(0, start + 4) +
+                   length.toString(16).toUpperCase().padStart(4, '0') +
+                   source.slice(start + 8);
+
+        };
+
+        let patched = whole.slice(0, at) + identifier + whole.slice(at + RSA_ENCRYPTION.length);
+
+        // The subject public key info, which opens eight hex digits before the
+        // identifier, then the TBSCertificate and then the certificate.
+        for (const start of [at - 8, 8, 0])
+            patched = relength(patched, start);
+
+        return unhex(patched);
+
+    };
+
+    /** `id-RSASSA-PSS` with the parameter set Bouncy Castle writes for a hash. */
+    const pssKey = (hash: string, salt: string): string =>
+        '304106092A864886F70D01010A' +
+        `3034A00F300D06096086480165030402${hash}0500` +
+        `A11C301A06092A864886F70D010108300D06096086480165030402${hash}0500` +
+        `A203${salt}`;
+
+    const keyOf = (identifier: string): CoseKey =>
+        X509Certificate.parse(withKeyAlgorithm(identifier)).publicKey;
+
+    const parse = (identifier: string): (() => void) => () => {
+        X509Certificate.parse(withKeyAlgorithm(identifier));
+    };
+
+    it('mints the corpus certificate back when it replaces nothing', () => {
+
+        // The helper held to the thing it is surgery on: replacing the
+        // identifier with itself has to give `rsaMeter` as the corpus minted
+        // it, or every test below is a test of the surgery instead.
+        expect(hex(withKeyAlgorithm(RSA_ENCRYPTION))).toBe(certificates.rsaMeter!);
+
+    });
+
+    it('restricts the key to the one PS* its parameters name', () => {
+
+        // "When the RSA private key owner wishes to limit the use of the
+        // public key exclusively to RSASSA-PSS, then the id-RSASSA-PSS object
+        // identifier MUST be used in the algorithm field within the subject
+        // public key information" [RFC 4055, Section 3.1]. The parameters name
+        // the hash, and a scheme with a hash is exactly one COSE algorithm, so
+        // the key carries it - and `resolveAlgorithm` then holds the message
+        // to it the way it holds an Ed25519 or an ML-DSA message to its own.
+        expect(keyOf(pssKey('01', '020120')).algorithm?.name).toBe('PS256');
+        expect(keyOf(pssKey('02', '020130')).algorithm?.name).toBe('PS384');
+        expect(keyOf(pssKey('03', '020140')).algorithm?.name).toBe('PS512');
+
+        // And the key is the same key, whichever identifier names it.
+        const key = keyOf(pssKey('01', '020120'));
+
+        expect(key.n?.length).toBe(256);
+        expect(hex(key.e!)).toBe('010001');
+        expect(hex(key.n!)).toBe(hex(certificate('rsaMeter').publicKey.n!));
+
+    });
+
+    it('attaches nothing where the parameters are absent', () => {
+
+        // "The parameters may be either absent or present when used as subject
+        // public key information" [RFC 4055, Section 3.1], and absent is
+        // scenario 2 of Section 3.3: "no parameter validation is needed". The
+        // restriction to the scheme is real and nothing here enforces it,
+        // because there is no COSE algorithm for RSASSA-PSS with whichever
+        // hash - a property of the algorithm registry rather than a decision
+        // of this reader.
+        const key = keyOf('300B06092A864886F70D01010A');
+
+        expect(key.algorithm).toBeNull();
+        expect(key.n?.length).toBe(256);
+
+    });
+
+    it('takes a salt length in a key for the floor RFC 4055 Section 3.3 makes it', () => {
+
+        // The one field a key and a signature are read differently for. A
+        // signature states the salt it used; a key states a minimum - "The
+        // saltLength field in the signature parameters MUST be greater or
+        // equal to that in the key parameters field" - so 20, which is also
+        // what the DEFAULT gives, is a key every PS* can sign for.
+        expect(keyOf(pssKey('01', '020114')).algorithm?.name).toBe('PS256');
+        expect(keyOf(pssKey('03', '020114')).algorithm?.name).toBe('PS512');
+
+        // A floor above the salt PS256 signs with is one no PS256 signature
+        // can clear. The same 33 in a signature is refused too, and for the
+        // other reason: there it is not 32.
+        expect(parse(pssKey('01', '020121')))
+            .toThrow(/ask for a salt of at least 33 octets, where 'PS256' signs with a salt as long as its hash, which is 32/u);
+
+    });
+
+    it('says of a key what it says of a signature, in the other clause', () => {
+
+        // An empty parameter set: present, and so not scenario 2, with every
+        // field left to a default that is SHA-1. The message is the signature
+        // path's with one clause changed, which is the whole difference
+        // between reading these parameters as a key's and as a signature's.
+        expect(parse('300D06092A864886F70D01010A3000'))
+            .toThrow(/holds a key restricted to RSASSA-PSS parameters that name no hash algorithm/u);
+
+        expect(parse(pssKey('04', '020120')))
+            .toThrow(/holds a key restricted to RSASSA-PSS parameters that name the hash '2\.16\.840\.1\.101\.3\.4\.2\.4'/u);
+
+    });
+
+});
+
+
 describe('A chain becomes an answer only with the key that signed', () => {
 
     const anchors = () => [certificate('metrologyRoot')];

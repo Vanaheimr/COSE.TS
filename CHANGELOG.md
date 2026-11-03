@@ -8,6 +8,46 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **`id-RSASSA-PSS` as an X.509 key type [RFC 4055, Section 3.1].** The other
+  way of writing an RSA key into a certificate, and the one that says what the
+  key is *for*: `rsaEncryption` leaves a key open to either RSA scheme, while
+  this identifier is used "when the RSA private key owner wishes to limit the
+  use of the public key exclusively to RSASSA-PSS". Its parameters "may be
+  either absent or present when used as subject public key information" — the
+  one place in a certificate where this identifier may appear without them —
+  and where they are present they name the hash, and a scheme with a hash is
+  exactly one COSE algorithm. So the key carries that algorithm, and the
+  message is held to it by `resolveAlgorithm`, where every other restricted
+  key type is held to its own. Where they are absent, nothing is attached, for
+  the reason under *Development* below.
+
+### Changed
+
+- The RSASSA-PSS parameter reader now knows which side of RFC 4055 Section 3.3
+  it is reading, because one field differs between them. A **signature** states
+  the salt it used, and for a COSE `PS*` that is the length of its hash [RFC
+  8230, Section 2]. A **key** states a floor: "The saltLength field in the
+  signature parameters MUST be greater or equal to that in the key parameters
+  field". So a key asking for 20, which is also what the DEFAULT gives, is one
+  every `PS*` can sign for, and requiring equality of it would have refused a
+  certificate the specification allows. The refusals of a key's parameters read
+  "holds a key restricted to RSASSA-PSS parameters that …" where a signature's
+  read "was signed with …"; the seven conditions behind them are the same.
+
+### Development
+
+- What an `id-RSASSA-PSS` key with **absent** parameters restricts is the
+  scheme and not an algorithm, and nothing in this package enforces it: a key
+  would have to carry a *family* rather than an algorithm for that, and the
+  COSE algorithms bundle a scheme with a hash, so "RSASSA-PSS with whichever
+  hash" is not a name this library has. It is scenario 2 of RFC 4055 Section
+  3.3, where "no parameter validation is needed", and a message signed with
+  RSASSA-PKCS1-v1_5 under such a key verifies here. Recorded rather than
+  fixed; the cross-implementation suite has a row that measures it on both
+  implementations.
+
 ## [0.13.0] — 2026-11-03
 
 A minor, for either of two reasons. It adds RSA — RSASSA-PSS and

@@ -450,10 +450,30 @@ the same on both sides of the body they cover — a certificate names its
 signature algorithm twice — since for this one algorithm the identifier alone
 is not the statement.
 
+The same identifier is also a *key* type, and there it says something no other
+key type in a certificate says. An `rsaEncryption` key is two integers and no
+opinion: the same key serves PSS and PKCS #1 v1.5, and the message's own
+algorithm is what a verification goes by. `id-RSASSA-PSS` in the subject public
+key info is written there "when the RSA private key owner wishes to limit the
+use of the public key exclusively to RSASSA-PSS", and its parameters — which
+may be absent here, and nowhere else in a certificate — name the hash. A scheme
+with a hash is exactly one `PS*`, so the key carries it and the message is held
+to it, which is how an Ed25519 or an ML-DSA key is held to its own. One field is
+read differently from a signature's: a signature states the salt it used, a key
+states a floor the signature's must reach
+[[RFC 4055 §3.3](https://www.rfc-editor.org/rfc/rfc4055#section-3.3)], so a key
+asking for twenty octets is a key every `PS*` can sign for. With the parameters
+absent, what the identifier restricts is the scheme and not an algorithm, and
+nothing here enforces that: a key would have to carry a family rather than an
+algorithm, and "RSASSA-PSS with whichever hash" is not a name COSE has.
+
 The certificates the test suite reads are minted by Bouncy Castle rather than
 written here, which is not a convenience: a DER parser checked against
 certificates its own package produced would agree with itself about any
-misreading whatsoever.
+misreading whatsoever. The one certificate Bouncy Castle will not write — an
+`id-RSASSA-PSS` key, which it derives from the key and not from the request —
+is minted by the cross-implementation suite's own encoder, where both
+implementations are asked about it.
 
 Not implemented, deliberately in every case: `COSE_Countersignature0`, the
 abbreviated countersignature of RFC 9338 — a bare signature with no header
