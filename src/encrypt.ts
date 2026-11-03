@@ -52,7 +52,8 @@ import type { CborEntry, CborValue }         from './cbor.ts';
 import { CoseError, notDecrypted }           from './errors.ts';
 import type { Decryption }                   from './errors.ts';
 import { CoseHeaders,
-         verifyCriticalHeaderParameters }    from './headers.ts';
+         verifyCriticalHeaderParameters,
+         verifyInitializationVectors }       from './headers.ts';
 import { KEY_TYPE_SYMMETRIC }                from './key.ts';
 import type { CoseKey }                      from './key.ts';
 import { HeaderLabel, label }                from './labels.ts';
@@ -228,6 +229,16 @@ abstract class CoseEncryptedBase {
 
         if (!critical.verified)
             return notDecrypted(critical.reason);
+
+        // After the crit check and not before it: where a message breaks a
+        // crit rule as well, the sender's own declaration is the more specific
+        // fault and is the one reported, which is what keeps a critical
+        // Partial IV distinguishable from a merely forbidden one.
+        const vectors = verifyInitializationVectors(this.protectedHeader,
+                                                    this.unprotectedHeader);
+
+        if (!vectors.verified)
+            return notDecrypted(vectors.reason);
 
         const algorithm = options.expectedAlgorithm ?? this.protectedHeader.algorithm
                                                     ?? this.unprotectedHeader.algorithm;

@@ -267,3 +267,31 @@ export function verifyCriticalHeaderParameters(protectedHeader:   CoseHeaders,
     return VERIFIED;
 
 }
+
+
+/**
+ * Check that one security layer does not carry both an IV and a Partial IV
+ * [RFC 9052, Section 3.1].
+ *
+ * A Partial IV carries only the part of the nonce that changes from message to
+ * message; the rest is a Context IV that travels with the key, and the two are
+ * composed by whoever decrypts. A layer that states both parameters therefore
+ * states its nonce twice, in two ways that cannot be reconciled, which is why
+ * the section forbids the combination outright instead of giving a precedence
+ * rule. This library writes an IV and never a Partial IV, so the prohibition
+ * is met on the way out by construction and can only be broken on the way in.
+ */
+export function verifyInitializationVectors(protectedHeader:   CoseHeaders,
+                                            unprotectedHeader: CoseHeaders): Verification {
+
+    const iv        = protectedHeader.has(label(HeaderLabel.iv)) ||
+                      unprotectedHeader.has(label(HeaderLabel.iv));
+
+    const partialIv = protectedHeader.has(label(HeaderLabel.partialIv)) ||
+                      unprotectedHeader.has(label(HeaderLabel.partialIv));
+
+    return iv && partialIv
+               ? notVerified('The "IV" and "Partial IV" header parameters must not both be present within the same security layer!')
+               : VERIFIED;
+
+}

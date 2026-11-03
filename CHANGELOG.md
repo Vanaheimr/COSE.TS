@@ -8,6 +8,21 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- **A Partial IV beside an IV is refused.** RFC 9052 Section 3.1 forbids the
+  `IV` and `Partial IV` header parameters in the same security layer, and a
+  `COSE_Encrypt0` or `COSE_Encrypt` message carrying both used to be decrypted
+  by its IV with the Partial IV ignored. It is refused now, by the new
+  `verifyInitializationVectors`, which the shared decryption path consults
+  right after the `crit` check — so a sender who marked the Partial IV
+  critical is still told about that demand first. Encrypting is untouched:
+  `encrypt` writes the IV and cannot be asked for a Partial IV at all, so only
+  a caller composing both header buckets itself was ever able to produce such a
+  message. Styx made the same change at the same time, and the
+  cross-implementation suite now requires the refusal of both rather than
+  recording what each one did.
+
 ### Fixed
 
 - **A thumbprint labelled SHA-1 is refused for the true reason.** SHA-1 is a

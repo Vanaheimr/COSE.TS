@@ -96,7 +96,8 @@ export { isMldsaParameterSet, MLDSA_PARAMETER_SETS,
 export type { MldsaParameterSet }                   from './mldsa.ts';
 
 export { CoseHeaders,
-         verifyCriticalHeaderParameters }           from './headers.ts';
+         verifyCriticalHeaderParameters,
+         verifyInitializationVectors }              from './headers.ts';
 
 export { CoseKey, KEY_TYPE_AKP,
          KEY_TYPE_SYMMETRIC, KeyLabel }             from './key.ts';

@@ -27,9 +27,10 @@
 
 import { describe, expect, it }              from 'vitest';
 
-import { CoseAlgorithms, CoseEncrypt,
-         CoseEncrypt0, CoseError, CoseKey,
-         CoseMac, CoseRecipient, encStructure,
+import { cbor, CoseAlgorithms, CoseEncrypt,
+         CoseEncrypt0, CoseError, CoseHeaders,
+         CoseKey, CoseMac, CoseRecipient,
+         encStructure, HeaderLabel, label,
          aesKeyUnwrap, aesKeyWrap,
          keyWrapAlgorithmFor }               from '../src/index.ts';
 import { CONTENT, hex, unhex }               from './vectors.ts';
@@ -174,6 +175,67 @@ describe('COSE_Encrypt0 with AES-GCM, against the published examples', () => {
         // caller has already spent.
         expect(() => CoseEncrypt0.encrypt(CONTENT, keyFor(128),
                                           { iv: unhex('0011') })).toThrow(/12-byte nonce/u);
+
+    });
+
+    it('refuses a Partial IV beside the IV, which no precedence rule settles', () => {
+
+        // RFC 9052, Section 3.1 forbids the two parameters in one security
+        // layer, and this is the only way to build such a message here:
+        // `encrypt` writes the IV and cannot be told about a Partial IV at
+        // all, so the prohibition is kept on the way out by construction.
+        const key     = keyFor(128);
+        const message = CoseEncrypt0.encryptWithHeaders(
+                            CONTENT, key,
+                            CoseHeaders.create(CoseAlgorithms.A128GCM),
+                            new CoseHeaders([[label(HeaderLabel.iv),        cbor.bytes(IV)],
+                                             [label(HeaderLabel.partialIv), cbor.bytes(unhex('61A7'))]]),
+                            { iv: IV });
+
+        const opened = message.decrypt(key);
+
+        expect(opened.decrypted).toBe(false);
+        expect(!opened.decrypted && opened.reason)
+            .toContain('must not both be present within the same security layer');
+
+    });
+
+    it('names the crit before the combination, and in the order the RFC gives', () => {
+
+        // The same message with crit [6], which is refused for the crit and
+        // not for the combination — and for which of the two crit rules
+        // depends on where the Partial IV sits. Unprotected, it is Section
+        // 3.1's fatal error: a crit listing a label whose parameter is not in
+        // the protected bucket. Protected, the crit is well formed and what
+        // is left is the demand itself, which this implementation cannot meet.
+        const key       = keyFor(128);
+        const partialIv = cbor.bytes(unhex('61A7'));
+        const crit      = CoseHeaders.create(CoseAlgorithms.A128GCM)
+                                     .set(label(HeaderLabel.critical),
+                                          cbor.array([label(HeaderLabel.partialIv)]));
+
+        const unprotectedLabel = CoseEncrypt0.encryptWithHeaders(
+                                     CONTENT, key, crit,
+                                     new CoseHeaders([[label(HeaderLabel.iv),        cbor.bytes(IV)],
+                                                      [label(HeaderLabel.partialIv), partialIv]]),
+                                     { iv: IV });
+
+        const protectedLabel   = CoseEncrypt0.encryptWithHeaders(
+                                     CONTENT, key,
+                                     crit.set(label(HeaderLabel.partialIv), partialIv),
+                                     new CoseHeaders([[label(HeaderLabel.iv), cbor.bytes(IV)]]),
+                                     { iv: IV });
+
+        const first  = unprotectedLabel.decrypt(key);
+        const second = protectedLabel.decrypt(key);
+
+        expect(first.decrypted).toBe(false);
+        expect(!first.decrypted && first.reason)
+            .toContain('is not present within the protected header bucket');
+
+        expect(second.decrypted).toBe(false);
+        expect(!second.decrypted && second.reason)
+            .toContain("'Partial IV' be understood");
 
     });
 

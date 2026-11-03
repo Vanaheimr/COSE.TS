@@ -26,6 +26,7 @@ import { aesGcmDecrypt, aesGcmEncrypt, aesKeyUnwrap, aesKeyWrap,
          headerLabelName, label, macTag, macWith, MLDSA_SIZES,
          mldsaPublicKeyFor, mldsaSign, mldsaVerify, NO_BYTES, resolveCurve,
          sameLabel, signWith, verifyCriticalHeaderParameters,
+         verifyInitializationVectors,
          verifyWith }            from '../src/index.ts';
 import { CONTENT, hex, KEY_11, unhex } from './vectors.ts';
 
@@ -266,6 +267,33 @@ describe('the header buckets', () => {
         const headers = new CoseHeaders([[label(HeaderLabel.critical),
                                           cbor.array([cbor.int(99)])]]);
         expect(verifyCriticalHeaderParameters(headers, CoseHeaders.empty).verified).toBe(false);
+    });
+
+    it('refuse an IV and a Partial IV in one layer, whichever bucket holds them', () => {
+
+        const iv        = new CoseHeaders([[label(HeaderLabel.iv),        cbor.bytes(IV)]]);
+        const partialIv = new CoseHeaders([[label(HeaderLabel.partialIv), cbor.bytes(unhex('61A7'))]]);
+        const both      = new CoseHeaders([[label(HeaderLabel.iv),        cbor.bytes(IV)],
+                                           [label(HeaderLabel.partialIv), cbor.bytes(unhex('61A7'))]]);
+
+        // One security layer is both of its buckets, so the combination is
+        // forbidden however it is split between them.
+        expect(verifyInitializationVectors(CoseHeaders.empty, both).verified).toBe(false);
+        expect(verifyInitializationVectors(both, CoseHeaders.empty).verified).toBe(false);
+        expect(verifyInitializationVectors(iv,   partialIv).verified).toBe(false);
+        expect(verifyInitializationVectors(partialIv, iv).verified).toBe(false);
+
+    });
+
+    it('allow either initialization vector on its own', () => {
+
+        const iv        = new CoseHeaders([[label(HeaderLabel.iv),        cbor.bytes(IV)]]);
+        const partialIv = new CoseHeaders([[label(HeaderLabel.partialIv), cbor.bytes(unhex('61A7'))]]);
+
+        expect(verifyInitializationVectors(CoseHeaders.empty, iv).verified).toBe(true);
+        expect(verifyInitializationVectors(CoseHeaders.empty, partialIv).verified).toBe(true);
+        expect(verifyInitializationVectors(CoseHeaders.empty, CoseHeaders.empty).verified).toBe(true);
+
     });
 
 });
