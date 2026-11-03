@@ -89,8 +89,9 @@ Until 1.0.0 the public API may change in minor releases.
   in `dist/` embeds the sources as they lie on disk, so 0.12.0's map carries
   4 801 carriage returns from a checkout that was partly CRLF, and a fully
   CRLF checkout built a map 6 906 bytes larger from the same commit; the
-  JavaScript itself was identical. Now the map is 504 148 bytes from any
-  checkout, 9 602 fewer than 0.12.0's — two per escaped ``.
+  JavaScript itself was identical. Now every checkout builds the same map:
+  built from 08f557a's sources it is 504 148 bytes, 9 602 fewer than
+  0.12.0's — two per escaped `\r`.
 
 ## [0.12.0] — 2026-11-01
 
