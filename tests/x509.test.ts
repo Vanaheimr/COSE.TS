@@ -422,13 +422,15 @@ describe('The thumbprint names a certificate, it does not vouch for one', () => 
 
     });
 
-    it('refuses a hash algorithm it can not compute', () => {
+    it('refuses a hash algorithm it can not compute, and says so', () => {
 
         // SHA-1 is registered and is deliberately not implemented on either
         // side, so a thumbprint naming it is refused rather than guessed at.
+        // The reason given has to be the true one: SHA-1 *is* a hash algorithm
+        // [RFC 9054, Section 3.1], and until 2026-11-03 this said it was not.
         expect(() => CoseCertificateHash.fromCbor(
             cbor.array([cbor.int(-14), cbor.bytes(new Uint8Array(20))])
-        )).toThrow(/not a hash algorithm/u);
+        )).toThrow(/is a hash algorithm this implementation does not compute/u);
 
     });
 

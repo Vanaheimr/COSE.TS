@@ -283,7 +283,7 @@ export class CoseCertificateHash {
         const hash = hashAlgorithmOf(algorithm);
 
         if (hash === null)
-            throw new CoseError(`The COSE algorithm '${algorithm.name}' is not a hash algorithm!`);
+            throw new CoseError(notAUsableHash(algorithm, ''));
 
         return new CoseCertificateHash(algorithm, certificate.thumbprint(hash));
 
@@ -313,7 +313,7 @@ export class CoseCertificateHash {
             throw new CoseError(`The COSE algorithm ${String(algorithmValue.value)} of the COSE_CertHash is not registered!`);
 
         if (hashAlgorithmOf(algorithm) === null)
-            throw new CoseError(`The COSE algorithm '${algorithm.name}' of the COSE_CertHash is not a hash algorithm!`);
+            throw new CoseError(notAUsableHash(algorithm, ' of the COSE_CertHash'));
 
         return new CoseCertificateHash(algorithm, hashValue.value);
 
@@ -339,7 +339,7 @@ export class CoseCertificateHash {
         const hash = hashAlgorithmOf(this.algorithm);
 
         if (hash === null)
-            return notVerified(`The COSE algorithm '${this.algorithm.name}' of the certificate thumbprint is not a hash algorithm!`);
+            return notVerified(notAUsableHash(this.algorithm, ' of the certificate thumbprint'));
 
         const computed = certificate.thumbprint(hash);
 
@@ -363,7 +363,28 @@ export class CoseCertificateHash {
  * any of them would claim a computation nobody performed: `x5t` carries a
  * hash, and only the hash algorithms of RFC 9054 compute one. They are the
  * entries of family `none` that name a digest.
+ *
+ * And not every hash algorithm has a digest *here*. SHA-1 is one — RFC 9054
+ * Section 3.1 registers it for exactly this field and recommends it "Filter
+ * Only", which is not for anything needing collision resistance — and this
+ * package does not compute it, so a thumbprint labelled SHA-1 is refused as
+ * well. Same verdict, different reason, and {@link notAUsableHash} is what
+ * says which: this refused SHA-1 by calling it not a hash algorithm until
+ * 2026-11-03, which was simply untrue.
  */
 function hashAlgorithmOf(algorithm: CoseAlgorithm): DigestAlgorithm | null {
     return algorithm.family === 'none' ? algorithm.hash : null;
+}
+
+
+/**
+ * Why a thumbprint can be neither computed nor checked with this algorithm.
+ *
+ * `where` names the place the algorithm was read from, so each caller keeps
+ * the wording it had for an algorithm that is no hash algorithm at all.
+ */
+function notAUsableHash(algorithm: CoseAlgorithm, where: string): string {
+    return algorithm.family === 'none'
+               ? `The COSE algorithm '${algorithm.name}'${where} is a hash algorithm this implementation does not compute!`
+               : `The COSE algorithm '${algorithm.name}'${where} is not a hash algorithm!`;
 }

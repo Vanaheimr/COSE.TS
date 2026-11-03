@@ -8,6 +8,18 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A thumbprint labelled SHA-1 is refused for the true reason.** SHA-1 is a
+  hash algorithm — RFC 9054 Section 3.1 registers it for `x5t` and recommends
+  it "Filter Only" — and this package does not compute it. Refusing such a
+  thumbprint is right; the sentence given for it was not, because it said
+  SHA-1 was not a hash algorithm. `CoseCertificateHash` now tells the two
+  reasons apart: an algorithm that is no hash algorithm at all keeps the
+  wording it had (`ES256`, `HMAC 256/256`, `ECDH-ES + HKDF-256`), and a hash
+  algorithm this implementation does not compute is said to be exactly that.
+  No verdict changes anywhere.
+
 ### Development
 
 - **Every checkout builds the same package.** `.gitattributes` keeps text
