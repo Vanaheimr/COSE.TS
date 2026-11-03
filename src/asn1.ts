@@ -265,6 +265,30 @@ export function derInteger(node: Asn1Node, what: string): bigint {
 
 
 /**
+ * A DER INTEGER as the unsigned big-endian magnitude an RSA parameter is.
+ *
+ * ASN.1 integers are signed, so a modulus whose leading octet has its high bit
+ * set is written with a zero octet in front of it [RFC 8017, Appendix A.1.1] —
+ * part of the encoding and not part of the number. What COSE carries is the
+ * number, in the fewest octets that hold it [RFC 8230, Section 4]. Dropping
+ * that octet here is therefore a conversion between two conventions rather
+ * than leniency: the encoding is still held to the minimality rule above, and
+ * a value that is not positive is refused rather than reinterpreted.
+ */
+export function derUnsignedInteger(node: Asn1Node, what: string): Uint8Array {
+
+    // For the sign and the minimality, which are the same checks either way.
+    if (derInteger(node, what) <= 0n)
+        throw new CoseError(`${what}: expected a positive DER INTEGER`);
+
+    return node.content[0] === 0x00
+               ? node.content.subarray(1)
+               : node.content;
+
+}
+
+
+/**
  * A DER BIT STRING, as whole octets.
  *
  * Every bit string a certificate carries a key or a signature in is octet

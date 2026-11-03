@@ -40,7 +40,25 @@ import { CONTENT, hex, unhex }               from './vectors.ts';
 const AT = new Date(corpus.validateAt);
 
 const certificates = corpus.certificates as Record<string, string>;
-const privateKeys  = corpus.privateKeys  as Record<string, { algorithm: string; curve?: string; keyD: string }>;
+
+/** The eight parameters of an RSA private key, as the corpus prints them. */
+interface CorpusRsaKey {
+    n:     string;
+    e:     string;
+    d:     string;
+    p:     string;
+    q:     string;
+    dP:    string;
+    dQ:    string;
+    qInv:  string;
+}
+
+const privateKeys  = corpus.privateKeys as Record<string, {
+                         algorithm:  string;
+                         curve?:     string;
+                         keyD?:      string;
+                         keyRsa?:    CorpusRsaKey;
+                     }>;
 
 const certificate = (name: string): X509Certificate => {
 
@@ -68,15 +86,35 @@ const keyOf = (name: string): CoseKey => {
     if (algorithm === null)
         throw new Error(`Unknown algorithm '${entry.algorithm}' in the certificate corpus!`);
 
+    // An RSA key is eight numbers rather than one, with no scalar to derive
+    // the rest from, so the corpus prints all eight of them.
+    if (entry.keyRsa !== undefined) {
+
+        const rsa = entry.keyRsa;
+
+        return CoseKey.fromRsaPrivateKey({
+                   n:     unhex(rsa.n),
+                   e:     unhex(rsa.e),
+                   d:     unhex(rsa.d),
+                   p:     unhex(rsa.p),
+                   q:     unhex(rsa.q),
+                   dP:    unhex(rsa.dP),
+                   dQ:    unhex(rsa.dQ),
+                   qInv:  unhex(rsa.qInv),
+               },
+               { algorithm });
+
+    }
+
     if (algorithm.family === 'mldsa')
-        return CoseKey.fromAkpSeed(algorithm, unhex(entry.keyD));
+        return CoseKey.fromAkpSeed(algorithm, unhex(entry.keyD!));
 
     const curve = curveByName(entry.curve!);
 
     if (curve === null)
         throw new Error(`Unknown curve '${String(entry.curve)}' in the certificate corpus!`);
 
-    return CoseKey.fromPrivateScalar(curve, unhex(entry.keyD), { algorithm });
+    return CoseKey.fromPrivateScalar(curve, unhex(entry.keyD!), { algorithm });
 
 };
 
@@ -151,7 +189,7 @@ describe('Reading what Bouncy Castle wrote', () => {
 
     });
 
-    it('recovers the certified key of all three families', () => {
+    it('recovers the certified key of all four families', () => {
 
         expect(certificate('meter').publicKey.curve?.name).toBe('brainpoolP256r1');
         expect(certificate('edwardsMeter').publicKey.curve?.name).toBe('Ed25519');
@@ -160,6 +198,26 @@ describe('Reading what Bouncy Castle wrote', () => {
 
         expect(pq.algorithm?.name).toBe('ML-DSA-65');
         expect(pq.pub?.length).toBe(1952);
+
+        const rsa = certificate('rsaMeter').publicKey;
+
+        expect(rsa.n?.length).toBe(256);
+        expect(hex(rsa.e!)).toBe('010001');
+
+        // An `rsaEncryption` key says nothing about what it is for - it is as
+        // usable for PSS as for PKCS #1 v1.5 - and on no curve either, so the
+        // two things the other three families carry are both absent here.
+        expect(rsa.algorithm).toBeNull();
+        expect(rsa.curve).toBeNull();
+
+    });
+
+    it('reads an RSA key of either width', () => {
+
+        // 3072 bits at the root and 2048 beneath it, which is the only reason
+        // the modulus is read as a number rather than as 256 octets.
+        expect(certificate('rsaRoot').publicKey.n?.length).toBe(384);
+        expect(certificate('rsaMeter').publicKey.n?.length).toBe(256);
 
     });
 
@@ -202,6 +260,51 @@ describe('Verifying a certificate against its issuer', () => {
 
     });
 
+    it('verifies certificates signed with RSASSA-PKCS1-v1_5 and with RSASSA-PSS', () => {
+
+        const links = [['rsaMeter',             'rsaManufacturerCA'],
+                       ['rsaMeterWideHash',     'rsaManufacturerCA'],
+                       ['rsaManufacturerCA',    'rsaRoot'],
+                       ['rsaPssMeter',          'rsaPssManufacturerCA'],
+                       ['rsaPssMeterWideHash',  'rsaPssManufacturerCA'],
+                       ['rsaPssManufacturerCA', 'rsaPssRoot']] as const;
+
+        for (const [subject, issuer] of links)
+            expect(certificate(subject).verifySignedBy(certificate(issuer)).verified).toBe(true);
+
+    });
+
+    it('takes the width of a signature from the signer and not from the signed', () => {
+
+        // The authority's own key is 2048 bits and the root's is 3072, so the
+        // signature on its certificate is 384 octets where the ones it writes
+        // are 256. Reading either width off the wrong certificate passes one
+        // of these and fails the other.
+        expect(certificate('rsaManufacturerCA').signatureValue.length).toBe(384);
+        expect(certificate('rsaMeter').signatureValue.length).toBe(256);
+
+        expect(certificate('rsaManufacturerCA').verifySignedBy(certificate('rsaRoot')).verified).toBe(true);
+
+    });
+
+    it('refuses an RSA signature with one octet changed, in either scheme', () => {
+
+        for (const [subject, issuer] of [['rsaMeter',    'rsaManufacturerCA'],
+                                         ['rsaPssMeter', 'rsaPssManufacturerCA']] as const) {
+
+            // The last octet of the certificate is the last octet of the
+            // signature, and 2048 bits away from everything it covers.
+            const tampered = unhex(certificates[subject]!);
+            const last     = tampered.length - 1;
+
+            tampered[last] = tampered[last]! ^ 0x01;
+
+            expect(X509Certificate.parse(tampered).verifySignedBy(certificate(issuer)).verified).toBe(false);
+
+        }
+
+    });
+
     it('refuses a certificate the candidate did not sign', () => {
 
         const wrong = certificate('meter').verifySignedBy(certificate('otherIntermediate'));
@@ -240,6 +343,19 @@ describe('Walking a chain to an anchor', () => {
                                                 certificate('metrologyRoot')]);
 
         expect(chain.validate([certificate('metrologyRoot')], { at: AT }).verified).toBe(true);
+
+    });
+
+    it('walks a chain signed with RSA, in both of its schemes', () => {
+
+        for (const [leaf, authority, root] of [['rsaMeter',    'rsaManufacturerCA',    'rsaRoot'],
+                                               ['rsaPssMeter', 'rsaPssManufacturerCA', 'rsaPssRoot']] as const) {
+
+            const chain = new CoseCertificateChain([certificate(leaf), certificate(authority)]);
+
+            expect(chain.validate([certificate(root)], { at: AT }).verified).toBe(true);
+
+        }
 
     });
 
@@ -498,6 +614,144 @@ describe('DER is read strictly, because that is where differentials live', () =>
 });
 
 
+describe('RSASSA-PSS says which PSS it is beside the identifier', () => {
+
+    /**
+     * A corpus certificate with one of its octets changed, by hex.
+     *
+     * The replacement has to be the same length, because every length in a
+     * certificate is written down and a patch that moved one would be refused
+     * for that instead. `occurrences` is what makes the patch land where it is
+     * meant to: a certificate states its signature algorithm twice, once
+     * within the body it signed and once beside it, and this implementation
+     * refuses a disagreement between the two before it reads either - so a
+     * patch meant to be *read* has to be made in both of them.
+     */
+    const patched = (name: string, from: string, to: string, occurrences = 2): Uint8Array => {
+
+        const whole = certificates[name]!;
+        const found = whole.split(from).length - 1;
+
+        if (found !== occurrences)
+            throw new Error(`'${from}' occurs ${String(found)} times in '${name}' and not ${String(occurrences)}!`);
+
+        if (from.length !== to.length)
+            throw new Error('A patch of a certificate has to be the length of what it replaces!');
+
+        return unhex(whole.split(from).join(to));
+
+    };
+
+    const parse = (der: Uint8Array): (() => void) => () => { X509Certificate.parse(der); };
+
+    /** The parameter set Bouncy Castle writes for SHA-256: MGF1 with SHA-256 and a 32-octet salt. */
+    const SHA256_HASH   = 'A00F300D06096086480165030402010500';
+    const MGF1_SHA256   = 'A11C301A06092A864886F70D010108300D06096086480165030402010500';
+    const SALT_32       = 'A203020120';
+
+    it('resolves the three parameter sets, and the three identifiers that need none', () => {
+
+        expect(certificate('rsaMeter')            .signatureAlgorithm.name).toBe('RS256');
+        expect(certificate('rsaManufacturerCA')   .signatureAlgorithm.name).toBe('RS384');
+        expect(certificate('rsaMeterWideHash')    .signatureAlgorithm.name).toBe('RS512');
+
+        expect(certificate('rsaPssMeter')         .signatureAlgorithm.name).toBe('PS256');
+        expect(certificate('rsaPssManufacturerCA').signatureAlgorithm.name).toBe('PS384');
+        expect(certificate('rsaPssMeterWideHash') .signatureAlgorithm.name).toBe('PS512');
+
+    });
+
+    it('refuses a hash the RSASSA-PSS algorithms are not defined over', () => {
+
+        // SHA-224, which RFC 8230 has no algorithm for.
+        expect(parse(patched('rsaPssMeter', SHA256_HASH, 'A00F300D06096086480165030402040500')))
+            .toThrow(/name the hash '2\.16\.840\.1\.101\.3\.4\.2\.4', which is not one the RSASSA-PSS algorithms of RFC 8230 are defined over/u);
+
+    });
+
+    it('refuses a mask generation function that is not MGF1', () => {
+
+        // 1.2.840.113549.1.1.9, which is pSpecified and not a mask at all.
+        expect(parse(patched('rsaPssMeter', MGF1_SHA256, 'A11C301A06092A864886F70D010109300D06096086480165030402010500')))
+            .toThrow(/fixes MGF1/u);
+
+    });
+
+    it('refuses MGF1 over a hash other than the one being signed', () => {
+
+        // The digest stays SHA-256 and the mask runs on SHA-384. RFC 4055
+        // only recommends that the two agree; for the COSE algorithms there
+        // is no PS* with two hashes in it, which is the stronger reason.
+        expect(parse(patched('rsaPssMeter', MGF1_SHA256, 'A11C301A06092A864886F70D010108300D06096086480165030402020500')))
+            .toThrow(/hash with '2\.16\.840\.1\.101\.3\.4\.2\.1' and mask with '2\.16\.840\.1\.101\.3\.4\.2\.2'/u);
+
+    });
+
+    it('refuses a salt that is not as long as the hash', () => {
+
+        expect(parse(patched('rsaPssMeter', SALT_32, 'A20302011F')))
+            .toThrow(/name a salt of 31 octets, where 'PS256' is a salt as long as its hash, which is 32/u);
+
+    });
+
+    it('refuses a trailer field other than the one value RFC 4055 allows', () => {
+
+        // The salt length relabelled as the trailer field, which is the one
+        // way to put a wrong trailer field in a minted certificate without
+        // re-encoding its lengths: a parameter set that leaves the default
+        // alone has nothing of that shape to patch.
+        expect(parse(patched('rsaPssMeter', SALT_32, 'A303020120')))
+            .toThrow(/name the trailer field 32, where RFC 4055 Section 3\.1 says the value must be 1/u);
+
+    });
+
+    it('refuses parameters beside the body that are not the ones within it', () => {
+
+        // The same patch in the outer identifier alone, which is where a
+        // message that wants to be read as one algorithm and verified as
+        // another would put it.
+        const whole  = certificates.rsaPssMeter!;
+        const outer  = whole.lastIndexOf(SALT_32);
+        const forked = unhex(whole.slice(0, outer) + 'A20302011F' + whole.slice(outer + SALT_32.length));
+
+        expect(parse(forked))
+            .toThrow(/signed with RSASSA-PSS parameters that are not the ones within the body it signed/u);
+
+    });
+
+    it('refuses a parameter beside an identifier that takes none', () => {
+
+        // A zero-length OCTET STRING in place of the NULL, which is the one
+        // other thing that fits in two octets. RFC 4055 asks for the NULL and
+        // accepts nothing at all beside it; this is neither.
+        expect(parse(patched('rsaMeter', '300D06092A864886F70D01010B0500',
+                                         '300D06092A864886F70D01010B0400')))
+            .toThrow(/carries parameters beside '1\.2\.840\.113549\.1\.1\.11'/u);
+
+        expect(parse(patched('rsaMeter', '300D06092A864886F70D0101010500',
+                                         '300D06092A864886F70D0101010400', 1)))
+            .toThrow(/carries parameters beside '1\.2\.840\.113549\.1\.1\.1'/u);
+
+    });
+
+    it('reads the modulus as the DER integer it is', () => {
+
+        // The leading zero octet of a modulus is the encoding saying the
+        // number is positive, so clearing the high bit of the octet after it
+        // leaves a zero that could have been left out.
+        expect(parse(patched('rsaMeter', '0282010100BB', '02820101003B', 1)))
+            .toThrow(/must be minimally encoded/u);
+
+        // And setting the high bit of the leading octet itself makes it a
+        // negative integer, which is not a modulus.
+        expect(parse(patched('rsaMeter', '0282010100BB', '0282010180BB', 1)))
+            .toThrow(/expected a positive DER INTEGER/u);
+
+    });
+
+});
+
+
 describe('A chain becomes an answer only with the key that signed', () => {
 
     const anchors = () => [certificate('metrologyRoot')];
@@ -514,6 +768,28 @@ describe('A chain becomes an answer only with the key that signed', () => {
         expect(result.verified).toBe(true);
         expect(result.verified === true && result.signer.subject.toString())
             .toBe('CN=Meter 1ISA0000000042');
+
+    });
+
+    it('names an RSA signer, with the message in the other RSA scheme', () => {
+
+        // The certificate is signed with RSASSA-PKCS1-v1_5 and the meter signs
+        // with RSASSA-PSS. The two layers have nothing to do with one another,
+        // and an implementation that read the message's algorithm off the
+        // certificate it arrived with would pass a row where they agree.
+        const signed = signWithChain(keyOf('rsaMeterWideHash'),
+                                     [certificate('rsaMeterWideHash'),
+                                      certificate('rsaManufacturerCA')]);
+
+        const result = CoseSign1.parse(signed.toBytes()).
+                           verifyWithCertificateChain([certificate('rsaRoot')], { at: AT });
+
+        expect(signed.protectedHeader.algorithm?.name).toBe('PS256');
+        expect(certificate('rsaMeterWideHash').signatureAlgorithm.name).toBe('RS512');
+
+        expect(result.verified).toBe(true);
+        expect(result.verified === true && result.signer.subject.toString())
+            .toBe('CN=Meter 1ISA0000000048');
 
     });
 

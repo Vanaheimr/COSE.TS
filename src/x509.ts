@@ -24,6 +24,14 @@
  * signature this package verifies, so whatever COSE can verify, a certificate
  * can be signed with.
  *
+ * One algorithm needs more than its object identifier: RSASSA-PSS says only
+ * "PSS", and which PSS — the digest, the mask generation function, the length
+ * of the salt, the trailer field — is written in the parameters beside it
+ * [RFC 4055, Section 3.1]. Those are read rather than skipped past, and held
+ * to the one shape the COSE algorithms name [RFC 8230, Section 2], because an
+ * identifier this implementation cannot act on is better refused where it
+ * stands than turned into a signature that will not verify.
+ *
  * What is NOT done, matching Styx so that the two agree about what an answer
  * means: no revocation, no name constraints, no certificate policies, no path
  * length beyond the CA flag itself. And a certificate says "this key belongs
@@ -33,7 +41,8 @@
 
 import { contentsOf, contextTag, derBitString, derBitStringRaw,
          derBoolean, derInteger, derObjectIdentifier, derString,
-         derTime, DerReader, Tag }        from './asn1.ts';
+         derTime, derUnsignedInteger,
+         DerReader, Tag }                 from './asn1.ts';
 import type { Asn1Node }                  from './asn1.ts';
 import { CoseAlgorithms, verifyWith }     from './algorithm.ts';
 import type { CoseAlgorithm }             from './algorithm.ts';
@@ -64,6 +73,9 @@ const CURVE_OIDS: Readonly<Record<string, CoseCurve>> = {
 const OID_EC_PUBLIC_KEY  = '1.2.840.10045.2.1';
 const OID_ED25519        = '1.3.101.112';
 const OID_ED448          = '1.3.101.113';
+const OID_RSA_ENCRYPTION = '1.2.840.113549.1.1.1';
+const OID_RSASSA_PSS     = '1.2.840.113549.1.1.10';
+const OID_MGF1           = '1.2.840.113549.1.1.8';
 
 /**
  * The ML-DSA identifiers of the NIST arc [FIPS 204, RFC 9881]. One object
@@ -81,16 +93,38 @@ const OID_MLDSA87        = '2.16.840.1.101.3.4.3.19';
  * exactly as the COSE algorithms this maps them to do — which is why the
  * curve-less `ES*` identifiers are the right target here and the fully
  * specified `ESP*`/`ESB*` ones are not.
+ *
+ * RSASSA-PSS is absent on purpose and resolved by {@link rsassaPssAlgorithm}
+ * instead: a table from identifiers to algorithms cannot hold an identifier
+ * that is three algorithms depending on the parameters written next to it.
  */
 const SIGNATURE_OIDS: Readonly<Record<string, CoseAlgorithm>> = {
-    '1.2.840.10045.4.3.2': CoseAlgorithms.ES256,    // ecdsa-with-SHA256
-    '1.2.840.10045.4.3.3': CoseAlgorithms.ES384,    // ecdsa-with-SHA384
-    '1.2.840.10045.4.3.4': CoseAlgorithms.ES512,    // ecdsa-with-SHA512
-    [OID_ED25519]:         CoseAlgorithms.Ed25519,
-    [OID_ED448]:           CoseAlgorithms.Ed448,
-    [OID_MLDSA44]:         CoseAlgorithms.MLDSA44,
-    [OID_MLDSA65]:         CoseAlgorithms.MLDSA65,
-    [OID_MLDSA87]:         CoseAlgorithms.MLDSA87,
+    '1.2.840.10045.4.3.2':   CoseAlgorithms.ES256,  // ecdsa-with-SHA256
+    '1.2.840.10045.4.3.3':   CoseAlgorithms.ES384,  // ecdsa-with-SHA384
+    '1.2.840.10045.4.3.4':   CoseAlgorithms.ES512,  // ecdsa-with-SHA512
+    '1.2.840.113549.1.1.11': CoseAlgorithms.RS256,  // sha256WithRSAEncryption [RFC 4055, Section 5]
+    '1.2.840.113549.1.1.12': CoseAlgorithms.RS384,  // sha384WithRSAEncryption
+    '1.2.840.113549.1.1.13': CoseAlgorithms.RS512,  // sha512WithRSAEncryption
+    [OID_ED25519]:           CoseAlgorithms.Ed25519,
+    [OID_ED448]:             CoseAlgorithms.Ed448,
+    [OID_MLDSA44]:           CoseAlgorithms.MLDSA44,
+    [OID_MLDSA65]:           CoseAlgorithms.MLDSA65,
+    [OID_MLDSA87]:           CoseAlgorithms.MLDSA87,
+};
+
+/**
+ * The RSASSA-PSS parameter sets this implementation verifies with, by the hash
+ * they name [RFC 4055, Section 2.1].
+ *
+ * The digest size is part of the table because it is part of the identifier's
+ * statement: the COSE PS* algorithms take a salt as long as the hash
+ * [RFC 8230, Section 2], so a parameter set naming SHA-256 and a salt of 20
+ * octets names no COSE algorithm at all.
+ */
+const RSASSA_PSS_HASHES: Readonly<Record<string, { algorithm: CoseAlgorithm; digestSize: number }>> = {
+    '2.16.840.1.101.3.4.2.1': { algorithm: CoseAlgorithms.PS256, digestSize: 32 },
+    '2.16.840.1.101.3.4.2.2': { algorithm: CoseAlgorithms.PS384, digestSize: 48 },
+    '2.16.840.1.101.3.4.2.3': { algorithm: CoseAlgorithms.PS512, digestSize: 64 },
 };
 
 /** The attribute types a distinguished name is usually written with. */
@@ -221,6 +255,9 @@ export class X509Name {
 
 const normalize = (value: string): string =>
     value.trim().replace(/\s+/gu, ' ').toLowerCase();
+
+
+const EMPTY = new Uint8Array(0);
 
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
@@ -404,10 +441,17 @@ export class X509Certificate {
         if (outerAlgorithm.oid !== innerAlgorithm.oid)
             throw new CoseError(`${what}: says it was signed with '${outerAlgorithm.oid}' on the outside and with '${innerAlgorithm.oid}' within the body it signed`);
 
-        const algorithm = SIGNATURE_OIDS[outerAlgorithm.oid];
+        // For every other algorithm here the identifier is the whole
+        // statement, the parameters being absent or a NULL. RSASSA-PSS is
+        // where the statement lives in the parameters, so two parameter sets
+        // that differ are two algorithms wearing one object identifier and the
+        // check above would miss exactly the case it exists for.
+        if (outerAlgorithm.oid === OID_RSASSA_PSS &&
+            !bytesEqual(outerAlgorithm.parameters?.encoded ?? EMPTY,
+                        innerAlgorithm.parameters?.encoded ?? EMPTY))
+            throw new CoseError(`${what}: says it was signed with RSASSA-PSS parameters that are not the ones within the body it signed`);
 
-        if (algorithm === undefined)
-            throw new CoseError(`${what}: was signed with '${outerAlgorithm.oid}', which is not a signature algorithm this implementation knows`);
+        const algorithm = signatureAlgorithmOf(outerAlgorithm, what);
 
         // The unique identifiers of v2 are read past rather than kept: no
         // certificate anybody issues carries them, and skipping a field one
@@ -567,13 +611,188 @@ function algorithmIdentifier(node: Asn1Node, what: string): { oid: string; param
 
 
 /**
+ * Whether an RSA `AlgorithmIdentifier` says anything beyond its object
+ * identifier, which none of them may.
+ *
+ * RFC 4055 asks for a NULL — Section 5 for the signature identifiers, Section
+ * 1.2 for `rsaEncryption` — and an absent parameter is accepted beside it,
+ * which is the equivalence its Section 2 requires of every implementation for
+ * the hash identifiers. Anything else is refused, and that much is this
+ * implementation's own strictness: Bouncy
+ * Castle, which is what the other side of the conformance suite reads
+ * certificates with, does not look at the field at all for these identifiers.
+ * A parameter nobody interprets is not the same thing as no parameter.
+ */
+function expectNoParameters(identifier: { oid: string; parameters: Asn1Node | null },
+                            what:       string): void {
+
+    if (identifier.parameters !== null &&
+        identifier.parameters.tag !== Tag.null)
+        throw new CoseError(`${what}: carries parameters beside '${identifier.oid}', where RFC 4055 allows a NULL or nothing at all`);
+
+}
+
+
+/** An `AlgorithmIdentifier` within an EXPLICIT context tag, which is how RFC 4055 writes its parameters. */
+function taggedAlgorithm(node: Asn1Node, what: string): { oid: string; parameters: Asn1Node | null } {
+
+    const wrapper    = contentsOf(node, what);
+    const identifier = algorithmIdentifier(wrapper.read(Tag.sequence), what);
+
+    wrapper.expectEnd();
+
+    return identifier;
+
+}
+
+
+/** An INTEGER within an EXPLICIT context tag, as a number. */
+function taggedInteger(node: Asn1Node, what: string): number {
+
+    const wrapper  = contentsOf(node, what);
+    const value    = derInteger(wrapper.read(Tag.integer), what);
+
+    wrapper.expectEnd();
+
+    return Number(value);
+
+}
+
+
+/**
+ * The algorithm a signature's `AlgorithmIdentifier` names.
+ *
+ * One lookup for every algorithm whose identifier is the whole of what it
+ * says, and the parameters of RFC 4055 for the one that is not.
+ */
+function signatureAlgorithmOf(identifier: { oid: string; parameters: Asn1Node | null },
+                              what:       string): CoseAlgorithm {
+
+    if (identifier.oid === OID_RSASSA_PSS)
+        return rsassaPssAlgorithm(identifier.parameters, what);
+
+    const algorithm = SIGNATURE_OIDS[identifier.oid];
+
+    if (algorithm === undefined)
+        throw new CoseError(`${what}: was signed with '${identifier.oid}', which is not a signature algorithm this implementation knows`);
+
+    // The RSA identifiers are the ones in that table whose parameters are
+    // specified rather than absent, so they are the ones where something else
+    // in that place means something went wrong. ECDSA, EdDSA and ML-DSA write
+    // nothing there, and a parameter beside one of those is somebody else's
+    // argument to have.
+    if (algorithm.family === 'rsapkcs1')
+        expectNoParameters(identifier, `${what}: the signature algorithm`);
+
+    return algorithm;
+
+}
+
+
+/**
+ * Which RSASSA-PSS a certificate was signed with [RFC 4055, Section 3.1]:
+ *
+ *     RSASSA-PSS-params  ::=  SEQUENCE  {
+ *         hashAlgorithm      [0] HashAlgorithm     DEFAULT sha1Identifier,
+ *         maskGenAlgorithm   [1] MaskGenAlgorithm  DEFAULT mgf1SHA1Identifier,
+ *         saltLength         [2] INTEGER           DEFAULT 20,
+ *         trailerField       [3] INTEGER           DEFAULT 1  }
+ *
+ * The parameters "MUST be present when used in the algorithm identifier
+ * associated with a signature value", and the two defaults that matter are
+ * SHA-1 — which this package has for nothing but reading somebody else's
+ * thumbprint. A parameter set relying on them is therefore refused by naming
+ * the default rather than by naming SHA-1, which is what it does not say.
+ *
+ * Everything accepted here is the shape RFC 8230 Section 2 fixes for the COSE
+ * PS* algorithms: MGF1 over the same hash, and a salt as long as that hash.
+ * That is not strictness for its own sake. Those algorithms are what this
+ * package verifies with, and its PSS takes the salt length from the hash
+ * rather than from the signature, so a certificate stating any other width is
+ * one it could not verify — and saying so where it says so beats a signature
+ * that mysteriously does not check out.
+ */
+function rsassaPssAlgorithm(parameters: Asn1Node | null, what: string): CoseAlgorithm {
+
+    const where = `${what}: the RSASSA-PSS parameters`;
+
+    if (parameters === null)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS and no parameters, which must be present rather than left to their defaults [RFC 4055, Section 3.1]`);
+
+    if (parameters.tag !== Tag.sequence)
+        throw new CoseError(`${where}: expected a SEQUENCE`);
+
+    const fields       = contentsOf(parameters, where);
+
+    const hashNode     = fields.readOptional(contextTag(0));
+    const maskGenNode  = fields.readOptional(contextTag(1));
+    const saltNode     = fields.readOptional(contextTag(2));
+    const trailerNode  = fields.readOptional(contextTag(3));
+
+    fields.expectEnd();
+
+    if (hashNode === null)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name no hash algorithm, which defaults to SHA-1 [RFC 4055, Section 3.1]`);
+
+    if (maskGenNode === null)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name no mask generation function, which defaults to MGF1 with SHA-1 [RFC 4055, Section 3.1]`);
+
+    const hash = taggedAlgorithm(hashNode, `${where}: the hash algorithm`);
+
+    expectNoParameters(hash, `${where}: the hash algorithm`);
+
+    const chosen = RSASSA_PSS_HASHES[hash.oid];
+
+    if (chosen === undefined)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name the hash '${hash.oid}', which is not one the RSASSA-PSS algorithms of RFC 8230 are defined over`);
+
+    const maskGen = taggedAlgorithm(maskGenNode, `${where}: the mask generation function`);
+
+    if (maskGen.oid !== OID_MGF1)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name the mask generation function '${maskGen.oid}', where RFC 8230 Section 2 fixes MGF1`);
+
+    if (maskGen.parameters?.tag !== Tag.sequence)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name MGF1 without the hash it runs on [RFC 4055, Section 2.2]`);
+
+    const maskHash = algorithmIdentifier(maskGen.parameters, `${where}: the MGF1 hash algorithm`);
+
+    expectNoParameters(maskHash, `${where}: the MGF1 hash algorithm`);
+
+    // "It is strongly RECOMMENDED that the underlying hash function be the
+    // same as the one identified by hashAlgorithm" [RFC 4055, Section 3.1],
+    // and for the COSE algorithms it is not a recommendation but what they
+    // are: there is no PS* with two hashes in it.
+    if (maskHash.oid !== hash.oid)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that hash with '${hash.oid}' and mask with '${maskHash.oid}', where RFC 8230 Section 2 asks MGF1 for the same hash`);
+
+    // The trailer field before the salt, because this is RFC 4055's own
+    // requirement - "the value MUST be 1" - where the width of the salt is
+    // fixed only by the COSE algorithm the identifier has to map onto.
+    const trailerField = trailerNode === null ? 1 : taggedInteger(trailerNode, `${where}: the trailer field`);
+
+    if (trailerField !== 1)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name the trailer field ${String(trailerField)}, where RFC 4055 Section 3.1 says the value must be 1`);
+
+    const saltLength = saltNode === null ? 20 : taggedInteger(saltNode, `${where}: the salt length`);
+
+    if (saltLength !== chosen.digestSize)
+        throw new CoseError(`${what}: was signed with RSASSA-PSS parameters that name a salt of ${String(saltLength)} octets, where '${chosen.algorithm.name}' is a salt as long as its hash, which is ${String(chosen.digestSize)} [RFC 8230, Section 2]`);
+
+    return chosen.algorithm;
+
+}
+
+
+/**
  * A `SubjectPublicKeyInfo`, as the COSE key it corresponds to.
  *
- * The three key types diverge here exactly as they do in COSE: an elliptic
- * curve key names its curve in the algorithm parameters and carries a point,
- * an Edwards key is its own algorithm and carries the whole public key, and an
- * ML-DSA key names its parameter set in the algorithm identifier — which is
- * the same reason an AKP COSE key has to carry `alg`.
+ * The key types diverge here exactly as they do in COSE: an elliptic curve key
+ * names its curve in the algorithm parameters and carries a point, an Edwards
+ * key is its own algorithm and carries the whole public key, an ML-DSA key
+ * names its parameter set in the algorithm identifier — which is the same
+ * reason an AKP COSE key has to carry `alg` — and an RSA key carries a
+ * structure of two integers and leaves the algorithm entirely open, as its
+ * COSE counterpart does.
  */
 function subjectPublicKey(node: Asn1Node, what: string): CoseKey {
 
@@ -601,6 +820,14 @@ function subjectPublicKey(node: Asn1Node, what: string): CoseKey {
 
     }
 
+    if (algorithm.oid === OID_RSA_ENCRYPTION) {
+
+        expectNoParameters(algorithm, `${what}: the public key algorithm`);
+
+        return rsaPublicKey(bits, what);
+
+    }
+
     if (algorithm.oid === OID_ED25519)
         return CoseKey.fromOkpPublicKey(CoseCurves.Ed25519, bits,
                                         { algorithm: CoseAlgorithms.Ed25519 });
@@ -618,6 +845,42 @@ function subjectPublicKey(node: Asn1Node, what: string): CoseKey {
         return CoseKey.fromAkpPublicKey(mldsa, bits);
 
     throw new CoseError(`${what}: holds a key of type '${algorithm.oid}', which is not a key type this implementation knows`);
+
+}
+
+
+/**
+ * An `RSAPublicKey` as a COSE key [RFC 8017, Appendix A.1.1]:
+ *
+ *     RSAPublicKey  ::=  SEQUENCE  { modulus INTEGER, publicExponent INTEGER }
+ *
+ * The only key type here whose BIT STRING holds a structure rather than a
+ * value, and the only one that says nothing about what it is for: an
+ * `rsaEncryption` key is as usable for PSS as for PKCS #1 v1.5, which is why
+ * no algorithm is attached to it and why the certificate's own signature
+ * algorithm is what a verification goes by.
+ *
+ * The width is not checked here. RFC 8230 Section 6.1's 2048 bits is a
+ * property of the keys the COSE algorithms accept rather than of the
+ * certificate, and the one place that refuses a narrower one is the
+ * verification itself — where Styx refuses it too, so that a narrow key is a
+ * failed signature on both sides rather than an unreadable certificate on one.
+ */
+function rsaPublicKey(bits: Uint8Array, what: string): CoseKey {
+
+    const where     = `${what}: the RSA public key`;
+    const outer     = new DerReader(bits, where);
+    const structure = outer.read(Tag.sequence);
+
+    outer.expectEnd();
+
+    const fields  = contentsOf(structure, where);
+    const n       = derUnsignedInteger(fields.read(Tag.integer), `${where}: the modulus`);
+    const e       = derUnsignedInteger(fields.read(Tag.integer), `${where}: the public exponent`);
+
+    fields.expectEnd();
+
+    return CoseKey.fromRsaPublicKey(n, e);
 
 }
 

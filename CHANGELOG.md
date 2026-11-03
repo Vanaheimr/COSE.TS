@@ -35,6 +35,21 @@ Until 1.0.0 the public API may change in minor releases.
   recovered from the signature and never compared [RFC 8017, Section 9.1.2],
   so no verifier can tell. Styx signs the same way when asked for
   deterministic output, which is what lets the two be compared byte for byte.
+- **RSA in X.509**, so that a certificate chain may be signed with it: the
+  `rsaEncryption` key type with the `RSAPublicKey` structure inside its bit
+  string, `sha256WithRSAEncryption` and its two wider siblings
+  [RFC 4055 Section 5], and `id-RSASSA-PSS` — the one identifier in a
+  certificate that does not say what it is, read from the parameters beside it
+  [RFC 4055 Section 3.1] and held to the shape RFC 8230 Section 2 fixes for the
+  `PS*` algorithms: MGF1 over the same hash, a salt as long as that hash, and
+  the trailer field that must be 1. Those parameters must also match on both
+  sides of the body they cover, which the object identifier alone no longer
+  settles. Until now such a certificate was refused as *“signed with
+  '1.2.840.113549.1.1.11', which is not a signature algorithm this
+  implementation knows”*.
+- `derUnsignedInteger` in `src/asn1.ts`: a DER INTEGER as the magnitude an RSA
+  parameter is, the leading zero octet of a positive number dropped as the
+  encoding artefact it is rather than carried into the key.
 - `CoseKey.signingKey()` and `CoseKey.verificationKey()`, which hand a
   signature algorithm the key material in whichever of the two shapes it
   needs — one value, or the parameters of an RSA key. `privateKeyBytes()` and

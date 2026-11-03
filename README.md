@@ -437,6 +437,19 @@ cannot check. Verification here goes through the same path as every other
 signature this package verifies, so whatever COSE can verify, a certificate can
 be signed with.
 
+One algorithm needs more than its object identifier. RSASSA-PSS says only
+"PSS", and which PSS — the digest, the mask generation function, the length of
+the salt, the trailer field — is written in the parameters beside it
+[[RFC 4055 §3.1](https://www.rfc-editor.org/rfc/rfc4055#section-3.1)]. Those
+are read, and held to the one shape the COSE `PS*` algorithms name
+[[RFC 8230 §2](https://www.rfc-editor.org/rfc/rfc8230#section-2)]: MGF1 over
+the same hash, and a salt as long as that hash. A certificate stating anything
+else is refused where it states it, which is the same answer as a signature
+that will not verify and a far better reason. The parameters also have to be
+the same on both sides of the body they cover — a certificate names its
+signature algorithm twice — since for this one algorithm the identifier alone
+is not the statement.
+
 The certificates the test suite reads are minted by Bouncy Castle rather than
 written here, which is not a convenience: a DER parser checked against
 certificates its own package produced would agree with itself about any
