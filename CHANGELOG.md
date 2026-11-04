@@ -8,6 +8,17 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-11-04
+
+A minor, because it reads two forms of RSA key that 0.13.0 refused: a
+certificate whose key is written as `id-RSASSA-PSS` [RFC 4055], which
+restricts it to RSASSA-PSS, and a private key of more than two primes [RFC
+8230, Section 4], which it now signs with. Both come with public API —
+`RsaOtherPrime`, `RsaPrivateKey.other` and `CoseKey.other`. It also fixes the
+public half of such a key, which handed out its third prime. Nothing 0.13.0
+accepted is refused now, the codec stays at `^0.12.0`, and every message
+0.13.0 wrote, this release writes byte for byte the same.
+
 ### Added
 
 - **`id-RSASSA-PSS` as an X.509 key type [RFC 4055, Section 3.1].** The other
