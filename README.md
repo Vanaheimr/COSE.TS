@@ -156,9 +156,9 @@ primes**, the further ones travelling as an array at label `−9` of maps of
 r_i, d_i and t_i. They are read and signed with, through the multi-prime steps
 of RFC 8017 Section 5.1.2; they never reach the thumbprint, which takes kty, n
 and e and nothing else; and the public half drops them with the rest, because
-each of them is a factor of the modulus. The form is optional in RFC 8230, and
-Styx declines it — it keeps the array, verifies with the modulus and refuses
-to sign — which the conformance suite records rather than judges.
+each of them is a factor of the modulus. The form is optional in RFC 8230.
+Styx signs with it too, and the conformance suite requires that both do, to the
+same bytes — a requirement of the suite and not of the RFC.
 
 EdDSA is deterministic by construction; ML-DSA is not, and RFC 9964 does not
 choose. This library always takes the deterministic variant of FIPS 204, where

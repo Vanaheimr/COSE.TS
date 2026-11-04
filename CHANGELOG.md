@@ -8,6 +8,15 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Development
+
+- **Styx signs with a key of more than two primes too.** The 0.14.0 entry and
+  the README said Styx refuses the form by design; that stopped being true with
+  Styx 244aa8c3, pushed an hour before 0.14.0 was published. Both now sign the
+  conformance suite's three-prime key to the same 256 bytes, each verifies the
+  other's message, and the suite's row for it is normative since e2e186b. The
+  README says so now; the 0.14.0 entry stays as it was released.
+
 ## [0.14.0] — 2026-11-04
 
 A minor, because it reads two forms of RSA key that 0.13.0 refused: a
