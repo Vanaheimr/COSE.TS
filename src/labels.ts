@@ -38,7 +38,10 @@ export const HeaderLabel = {
     /** The partial initialization vector [RFC 9052]. */
     partialIv:              6,
 
-    /** The countersignature of RFC 8152, superseded by label 11 [RFC 9338]. */
+    /**
+     * The countersignature of RFC 8152, superseded by label 11 [RFC 9338]:
+     * read and verified, never written.
+     */
     counterSignature:       7,
 
     /** The countersignature that also covers the signature it signs [RFC 9338]. */

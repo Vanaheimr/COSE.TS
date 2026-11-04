@@ -8,6 +8,26 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **The countersignature of RFC 8152 is read and verified** (header parameter
+  7). RFC 9052, Section 3.1 says it "must be understood by new implementations,
+  to remain compatible with senders that adhere to" RFC 8152, and until now
+  this library carried the name and read nothing there.
+  `CoseSign1.rfc8152Countersignatures` reads it, a COSE_Signature or an array
+  of them, through the same reader as `countersignatures`.
+  `verifyRfc8152Countersignature` verifies one over the Sig_structure of RFC
+  8152, Section 4.4, which the static `toBeRfc8152Countersigned` builds, with
+  the context `RFC8152_COUNTERSIGNATURE_CONTEXT` ("CounterSignature"). The
+  checks on the countersignature itself, its `crit` and its algorithm, are the
+  ones version 2 runs. Nothing writes one: `addCountersignature` writes
+  version 2, as before. The doc comments say what a valid one does not
+  attest. The body signature is not part of what it signs, so it can be
+  replaced and the countersignature still verifies, and a test states exactly
+  that. The tests are held to the working group's own examples,
+  `countersign/signed1-01` and `signed1-02` of cose-wg/Examples, the ones Styx
+  is held to since fb3314be.
+
 ### Development
 
 - **Styx signs with a key of more than two primes too.** The 0.14.0 entry and

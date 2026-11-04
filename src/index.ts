@@ -21,7 +21,8 @@
  * recipient structures
  * carrying a content key by `direct`, by AES key wrap, or by ECDH-ES with
  * HKDF — directly or wrapped — on the EC2 curves, X25519 and X448; the version 2
- * countersignatures of RFC 9338; COSE keys of key type EC2, OKP, AKP and
+ * countersignatures of RFC 9338, and reading and verifying the older one of
+ * RFC 8152 at label 7; COSE keys of key type EC2, OKP, AKP and
  * Symmetric with the key thumbprints of RFC 9679; the ECDSA algorithms of
  * RFC 9053 and RFC 9864, EdDSA of RFC 8032 and ML-DSA of RFC 9964; and the
  * X.509 chains of RFC 9360, walked to a trust anchor and bound to the key that
@@ -111,7 +112,8 @@ export type { CoseKeyParts }                        from './key.ts';
 export { CoseSignature }                            from './signature.ts';
 
 export { COSE_SIGN1_TAG, COUNTERSIGNATURE_CONTEXT,
-         CoseSign1, SIGNATURE_CONTEXT }             from './sign1.ts';
+         CoseSign1, RFC8152_COUNTERSIGNATURE_CONTEXT,
+         SIGNATURE_CONTEXT }                        from './sign1.ts';
 export type { CertificateChainVerification,
               CertificateChainVerifyOptions,
               Sign1Options, VerifyOptions }         from './sign1.ts';

@@ -59,6 +59,13 @@ export const SIGNATURE_CONTEXT = 'Signature1';
  */
 export const COUNTERSIGNATURE_CONTEXT = 'CounterSignatureV2';
 
+/**
+ * The context string of the countersignature of RFC 8152 (header parameter
+ * 7), which RFC 9338 deprecated: it covers the payload but not the signature
+ * it countersigns [RFC 8152, Section 4.4].
+ */
+export const RFC8152_COUNTERSIGNATURE_CONTEXT = 'CounterSignature';
+
 
 /** What a signer may choose beyond the payload and the key. */
 export interface Sign1Options {
@@ -549,13 +556,51 @@ export class CoseSign1 {
      */
     public get countersignatures(): readonly CoseSignature[] {
 
-        const value = this.unprotectedHeader.get(label(HeaderLabel.counterSignatureV2));
+        return this.countersignaturesAt(HeaderLabel.counterSignatureV2,
+                                        'The countersignature header parameter must be a COSE_Countersignature or an array of them!');
+
+    }
+
+
+    /**
+     * The countersignatures of RFC 8152 on this message, which live in the
+     * unprotected bucket under label 7: a COSE_Signature, or an array of
+     * them, in the same two shapes as label 11 [RFC 8152, Section 3.1].
+     *
+     * RFC 9338 deprecated this header parameter, because its signature covers
+     * the payload and the body's protected bucket but *not* the signature it
+     * countersigns. Such a countersignature therefore says "I signed the same
+     * thing", and not "I vouch for that signature". It is read all the same,
+     * because RFC 9052, Section 3.1 says it "must be understood by new
+     * implementations, to remain compatible with senders that adhere to" RFC
+     * 8152. This library does not write one: `addCountersignature` writes
+     * version 2.
+     *
+     * Throws when the header parameter is present but not a countersignature,
+     * rather than pretending there is none.
+     */
+    public get rfc8152Countersignatures(): readonly CoseSignature[] {
+
+        return this.countersignaturesAt(HeaderLabel.counterSignature,
+                                        'The RFC 8152 counter signature header parameter must be a COSE_Signature or an array of them!');
+
+    }
+
+
+    /**
+     * The countersignatures within one header parameter of the unprotected
+     * bucket. Labels 7 and 11 share their two shapes: a single one written
+     * bare, several written as an array of them.
+     */
+    private countersignaturesAt(headerLabel: number, notAnArray: string): readonly CoseSignature[] {
+
+        const value = this.unprotectedHeader.get(label(headerLabel));
 
         if (value === null)
             return [];
 
         if (value.type !== 'array')
-            throw new CoseError('The countersignature header parameter must be a COSE_Countersignature or an array of them!');
+            throw new CoseError(notAnArray);
 
         if (value.items.length > 0 && value.items[0]!.type === 'array')
             return value.items.map(each => CoseSignature.parse(each));
@@ -591,6 +636,31 @@ export class CoseSign1 {
             cbor.bytes(externalAad ?? NO_BYTES),
             cbor.bytes(payload),
             cbor.array([cbor.bytes(signature)]),
+        ]));
+
+    }
+
+
+    /**
+     * The encoded Sig_structure of an RFC 8152 countersignature on a
+     * COSE_Sign1 message [RFC 8152, Section 4.4]: the context
+     * "CounterSignature", the body's protected bucket, the countersignature's
+     * own, the external data and the payload.
+     *
+     * Five elements, and the signature being countersigned is not one of
+     * them. That is the flaw RFC 9338 replaced it for.
+     */
+    public static toBeRfc8152Countersigned(bodyProtectedHeaderBytes:             Uint8Array,
+                                           countersignatureProtectedHeaderBytes: Uint8Array,
+                                           payload:                              Uint8Array,
+                                           externalAad:                          Uint8Array | null = null): Uint8Array {
+
+        return encode(cbor.array([
+            cbor.text(RFC8152_COUNTERSIGNATURE_CONTEXT),
+            cbor.bytes(bodyProtectedHeaderBytes),
+            cbor.bytes(countersignatureProtectedHeaderBytes),
+            cbor.bytes(externalAad ?? NO_BYTES),
+            cbor.bytes(payload),
         ]));
 
     }
@@ -689,6 +759,52 @@ export class CoseSign1 {
                                   key:              CoseKey,
                                   options:          VerifyOptions = {}): Verification {
 
+        return this.verifyAnyCountersignature(countersignature, key, options,
+                                              payload => CoseSign1.toBeCountersigned(this.protectedHeaderBytes,
+                                                                                     countersignature.protectedHeaderBytes,
+                                                                                     payload,
+                                                                                     this.signature,
+                                                                                     options.externalAad ?? null));
+
+    }
+
+
+    /**
+     * Verify one RFC 8152 countersignature of this message (label 7), over
+     * the Sig_structure with the context "CounterSignature" [RFC 8152,
+     * Section 4.4].
+     *
+     * Mind what a valid one says. Its signer signed this payload under this
+     * message's protected bucket. It does *not* say that its signer saw the
+     * body signature, which it does not cover: the body signature can be
+     * replaced by another one and this countersignature still verifies. Nor
+     * does it say whether the body signature is valid, which `verify`
+     * answers.
+     */
+    public verifyRfc8152Countersignature(countersignature: CoseSignature,
+                                         key:              CoseKey,
+                                         options:          VerifyOptions = {}): Verification {
+
+        return this.verifyAnyCountersignature(countersignature, key, options,
+                                              payload => CoseSign1.toBeRfc8152Countersigned(this.protectedHeaderBytes,
+                                                                                            countersignature.protectedHeaderBytes,
+                                                                                            payload,
+                                                                                            options.externalAad ?? null));
+
+    }
+
+
+    /**
+     * What the two kinds of countersignature have in common: the `crit` of
+     * the countersignature, the algorithm it states or the caller expects,
+     * and the payload. They differ in the structure that was signed, which
+     * `toBeSigned` builds from the payload.
+     */
+    private verifyAnyCountersignature(countersignature: CoseSignature,
+                                      key:              CoseKey,
+                                      options:          VerifyOptions,
+                                      toBeSigned:       (payload: Uint8Array) => Uint8Array): Verification {
+
         const critical = verifyCriticalHeaderParameters(countersignature.protectedHeader,
                                                         countersignature.unprotectedHeader,
                                                         options.alsoUnderstood ?? []);
@@ -713,11 +829,7 @@ export class CoseSign1 {
 
         return verifySignature(algorithm.value,
                                key,
-                               CoseSign1.toBeCountersigned(this.protectedHeaderBytes,
-                                                           countersignature.protectedHeaderBytes,
-                                                           payload.value,
-                                                           this.signature,
-                                                           options.externalAad ?? null),
+                               toBeSigned(payload.value),
                                countersignature.signature);
 
     }

@@ -81,7 +81,12 @@ for it.
   its own algorithm and its own key.
 - **Countersignatures** ([RFC 9338](https://www.rfc-editor.org/rfc/rfc9338),
   header parameter 11) on a `CoseSign1` — a signature *of a signature*, in the
-  version 2 form that actually covers the signature it countersigns.
+  version 2 form that actually covers the signature it countersigns. The older
+  `counter signature` of RFC 8152 (header parameter 7) is read and verified as
+  well, because [RFC 9052 §3.1](https://www.rfc-editor.org/rfc/rfc9052#section-3.1)
+  says it "must be understood by new implementations", but never written: it
+  covers the payload and not the signature, so a valid one says "I signed the
+  same thing" and nothing more.
 - **`CoseKey`** — COSE keys of key type EC2 ([RFC 9052 §7](https://www.rfc-editor.org/rfc/rfc9052#section-7),
   including compressed `y`), OKP, and AKP
   ([RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)), with the COSE Key
@@ -582,6 +587,10 @@ uses — same RFCs, same appendices, same transcription:
 - **RFC 9338 A.2.1** — the countersignature the RFC prints in diagnostic
   notation only, assembled here from its documented parts. That both its body
   signature and its countersignature then verify is what proves the assembly.
+- **cose-wg/Examples `countersign/signed1-01` and `signed1-02`** — the RFC 8152
+  countersignature of label 7, once with EdDSA and then with EdDSA and ES256 in
+  an array. The working group publishes what each countersigner signed, and the
+  Sig_structure is compared with it byte for byte.
 - **RFC 6979 A.2.5** — the deterministic P-256 signatures, reproduced exactly.
 - **RFC 8032 §7.1 and §7.4** — Ed25519 and Ed448, also reproduced exactly, and
   that is a stronger check than any ECDSA vector allows: EdDSA has no nonce to
