@@ -336,6 +336,17 @@ export class X509Certificate {
     /** The certified public key. */
     public readonly publicKey:        CoseKey;
 
+    /**
+     * Whether the key is written as `id-RSASSA-PSS` [RFC 4055, Section 3.1],
+     * which its owner does "to limit the use of the public key exclusively to
+     * RSASSA-PSS". Where the parameters name a hash, `publicKey` carries the
+     * one PS* they describe. Where they are absent, no algorithm can say
+     * "RSASSA-PSS with whichever hash", so this is where the restriction is
+     * kept, and `CoseSign1.verifyWithCertificateChain` is where it is
+     * enforced.
+     */
+    public readonly restrictedToRsassaPss: boolean;
+
     /** How this certificate was signed, as the COSE algorithm it corresponds to. */
     public readonly signatureAlgorithm: CoseAlgorithm;
 
@@ -362,6 +373,7 @@ export class X509Certificate {
         notBefore:          Date;
         notAfter:           Date;
         publicKey:          CoseKey;
+        restrictedToRsassaPss: boolean;
         signatureAlgorithm: CoseAlgorithm;
         signatureValue:     Uint8Array;
         basicConstraints:   BasicConstraints | null;
@@ -377,6 +389,7 @@ export class X509Certificate {
         this.notBefore           = fields.notBefore;
         this.notAfter            = fields.notAfter;
         this.publicKey           = fields.publicKey;
+        this.restrictedToRsassaPss = fields.restrictedToRsassaPss;
         this.signatureAlgorithm  = fields.signatureAlgorithm;
         this.signatureValue      = fields.signatureValue;
         this.basicConstraints    = fields.basicConstraints;
@@ -436,7 +449,8 @@ export class X509Certificate {
         validity.expectEnd();
 
         const subject           = X509Name.parse(fields.read(Tag.sequence), `${what}: the subject`);
-        const publicKey         = subjectPublicKey(fields.read(Tag.sequence), what);
+        const { publicKey,
+                restrictedToRsassaPss } = subjectPublicKey(fields.read(Tag.sequence), what);
 
         if (outerAlgorithm.oid !== innerAlgorithm.oid)
             throw new CoseError(`${what}: says it was signed with '${outerAlgorithm.oid}' on the outside and with '${innerAlgorithm.oid}' within the body it signed`);
@@ -479,6 +493,7 @@ export class X509Certificate {
             notBefore,
             notAfter,
             publicKey,
+            restrictedToRsassaPss,
             signatureAlgorithm:  algorithm,
             signatureValue:      derBitString(signatureNode, `${what}: the signature`),
             basicConstraints:    extensions.basicConstraints,
@@ -818,13 +833,25 @@ function rsassaPssAlgorithm(parameters: Asn1Node | null,
  * structure of two integers and leaves the algorithm entirely open, as its
  * COSE counterpart does.
  */
-function subjectPublicKey(node: Asn1Node, what: string): CoseKey {
+function subjectPublicKey(node: Asn1Node, what: string): { publicKey:             CoseKey;
+                                                             restrictedToRsassaPss: boolean } {
 
     const fields    = contentsOf(node, `${what}: the subject public key info`);
     const algorithm = algorithmIdentifier(fields.read(Tag.sequence), `${what}: the public key algorithm`);
     const bits      = derBitString(fields.read(Tag.bitString), `${what}: the public key`);
 
     fields.expectEnd();
+
+    return {
+        publicKey:             publicKeyOf(algorithm, bits, what),
+        restrictedToRsassaPss: algorithm.oid === OID_RSASSA_PSS,
+    };
+
+}
+
+
+/** The key a subject public key info holds, by its algorithm identifier. */
+function publicKeyOf(algorithm: { oid: string; parameters: Asn1Node | null }, bits: Uint8Array, what: string): CoseKey {
 
     if (algorithm.oid === OID_EC_PUBLIC_KEY) {
 
@@ -866,14 +893,12 @@ function subjectPublicKey(node: Asn1Node, what: string): CoseKey {
         // public key information", which is the only place in a certificate
         // where this identifier may go without them.
         //
-        // Absent, they are scenario 2 of Section 3.3 and nothing is attached.
-        // The restriction to the scheme is real and is not enforced here, for
-        // the plain reason that there is nothing to enforce it with: the COSE
-        // algorithms bundle a scheme with a hash, so "RSASSA-PSS with
-        // whichever hash" is not an algorithm this library can name. What a
-        // key would have to carry for that is a family rather than an
-        // algorithm, which is a change to the key model and not to this
-        // reader.
+        // Absent, they are scenario 2 of Section 3.3 and nothing is attached
+        // to the key: the COSE algorithms bundle a scheme with a hash, so
+        // "RSASSA-PSS with whichever hash" is not an algorithm this library
+        // can name. The restriction to the scheme is kept on the certificate
+        // instead, as `restrictedToRsassaPss`, and enforced where the
+        // certificate is used to verify.
         //
         // Present, they name the hash, and with it exactly one PS* - so the
         // key carries that algorithm and the message's own has to be it,

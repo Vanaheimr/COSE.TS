@@ -27,6 +27,26 @@ Until 1.0.0 the public API may change in minor releases.
   that. The tests are held to the working group's own examples,
   `countersign/signed1-01` and `signed1-02` of cose-wg/Examples, the ones Styx
   is held to since fb3314be.
+- **`X509Certificate.restrictedToRsassaPss`**: whether the certified key is
+  written as `id-RSASSA-PSS` [RFC 4055, Section 3.1], with or without
+  parameters.
+
+### Changed
+
+- **An `id-RSASSA-PSS` key verifies nothing but RSASSA-PSS.** Its owner writes
+  that identifier "to limit the use of the public key exclusively to
+  RSASSA-PSS", and `CoseSign1.verifyWithCertificateChain` now refuses a
+  message in any other scheme under such a key: "... restricts its key to
+  RSASSA-PSS, and this message is signed with 'RS256', which is not RSASSA-PSS
+  [RFC 4055, Section 3.1]!". The scheme is asked before the hash, so a message
+  under a key whose parameters name a hash is refused for its scheme as well.
+  The 0.14.0 entry recorded the key without parameters as unenforced, because
+  no COSE algorithm names "RSASSA-PSS with whichever hash". The certificate
+  keeps the restriction now, which needs no such name. RFC 4055 states the
+  restriction as a wish rather than as a MUST; it is honoured all the same, as
+  Styx honours it since 70e1eac1. A message signed with RSASSA-PKCS1-v1_5
+  under such a key, which 0.14.0 verified when the parameters were absent, is
+  refused. An `rsaEncryption` key stays open to either scheme.
 
 ### Development
 

@@ -857,14 +857,85 @@ describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', (
         // "The parameters may be either absent or present when used as subject
         // public key information" [RFC 4055, Section 3.1], and absent is
         // scenario 2 of Section 3.3: "no parameter validation is needed". The
-        // restriction to the scheme is real and nothing here enforces it,
-        // because there is no COSE algorithm for RSASSA-PSS with whichever
-        // hash - a property of the algorithm registry rather than a decision
-        // of this reader.
+        // restriction to the scheme is real, but there is no COSE algorithm
+        // for RSASSA-PSS with whichever hash - a property of the algorithm
+        // registry rather than a decision of this reader - so the key carries
+        // none, and the certificate keeps the restriction instead.
         const key = keyOf('300B06092A864886F70D01010A');
 
         expect(key.algorithm).toBeNull();
         expect(key.n?.length).toBe(256);
+
+    });
+
+    it('keeps the restriction to the scheme on the certificate', () => {
+
+        // With or without parameters, the identifier says the key is for
+        // RSASSA-PSS. Where no algorithm can say that, the certificate does.
+        const restricted = (identifier: string): boolean =>
+            X509Certificate.parse(withKeyAlgorithm(identifier)).restrictedToRsassaPss;
+
+        expect(restricted('300B06092A864886F70D01010A')).toBe(true);
+        expect(restricted(pssKey('01', '020120'))).toBe(true);
+        expect(restricted(RSA_ENCRYPTION)).toBe(false);
+
+    });
+
+    /**
+     * `rsaMeter`'s private key, signing with the given algorithm, and a
+     * message carrying the certificate that `identifier` makes of it. The
+     * certificate is its own trust anchor here, so its body no longer
+     * matching its signature costs nothing: a chain that ends at an anchor
+     * is not asked for the anchor's signature, and what is left to ask is
+     * whether the key may have made the message.
+     */
+    const verifyUnder = (identifier: string, algorithm: string) => {
+
+        const rsa         = privateKeys.rsaMeter!.keyRsa!;
+        const signingKey  = CoseKey.fromRsaPrivateKey({
+                                n:    unhex(rsa.n),  e:    unhex(rsa.e),  d:    unhex(rsa.d),
+                                p:    unhex(rsa.p),  q:    unhex(rsa.q),
+                                dP:   unhex(rsa.dP), dQ:   unhex(rsa.dQ), qInv: unhex(rsa.qInv),
+                            },
+                            { algorithm: algorithmByName(algorithm)! });
+
+        const certificate = X509Certificate.parse(withKeyAlgorithm(identifier));
+
+        return CoseSign1.parse(signWithChain(signingKey, [certificate]).toBytes()).
+                   verifyWithCertificateChain([certificate], { at: AT });
+
+    };
+
+    it('refuses the other scheme under such a key, with or without parameters', () => {
+
+        // The restriction is stated as what the key owner "wishes", and it is
+        // honoured. Under the key without parameters, nothing else would
+        // refuse it; under the one naming SHA-256, the hash would match.
+        for (const identifier of ['300B06092A864886F70D01010A', pssKey('01', '020120')])
+            for (const algorithm of ['RS256', 'RS384', 'RS512']) {
+
+                const result = verifyUnder(identifier, algorithm);
+
+                expect(result.verified, algorithm).toBe(false);
+                expect(result.verified === false && result.reason, algorithm)
+                    .toContain(`restricts its key to RSASSA-PSS, and this message is signed with '${algorithm}', which is not RSASSA-PSS`);
+
+            }
+
+    });
+
+    it('verifies RSASSA-PSS with any hash under a key without parameters', () => {
+
+        for (const algorithm of ['PS256', 'PS384', 'PS512'])
+            expect(verifyUnder('300B06092A864886F70D01010A', algorithm).verified, algorithm).toBe(true);
+
+    });
+
+    it('leaves an rsaEncryption key open to either scheme', () => {
+
+        // The control: the same surgery replacing the identifier with itself.
+        for (const algorithm of ['RS256', 'PS256'])
+            expect(verifyUnder(RSA_ENCRYPTION, algorithm).verified, algorithm).toBe(true);
 
     });
 

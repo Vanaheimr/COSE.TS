@@ -529,6 +529,24 @@ export class CoseSign1 {
         if (!validated.verified)
             return validated;
 
+        // An id-RSASSA-PSS key is for RSASSA-PSS and nothing else, whether
+        // or not its parameters name a hash [RFC 4055, Section 3.1]. Where
+        // they do, the key carries that PS* as well and `verify` holds the
+        // message to its hash below; where they do not, only the certificate
+        // knows. The scheme is asked first either way, so a message in the
+        // other scheme is refused for that and not for its hash.
+        if (chain.endEntity.restrictedToRsassaPss) {
+
+            const algorithm = resolveAlgorithm(this.protectedHeader,
+                                               this.unprotectedHeader,
+                                               options.expectedAlgorithm ?? null,
+                                               'This COSE_Sign1 message');
+
+            if (algorithm.ok && algorithm.value.family !== 'rsapss')
+                return notVerified(`The end-entity certificate '${chain.endEntity.subject.toString()}' restricts its key to RSASSA-PSS, and this message is signed with '${algorithm.value.name}', which is not RSASSA-PSS [RFC 4055, Section 3.1]!`);
+
+        }
+
         // Whether the certified key is one this algorithm can verify with is
         // the algorithm's question and not this one's: an EdDSA or an ML-DSA
         // certificate is as good a binding as an elliptic curve one.

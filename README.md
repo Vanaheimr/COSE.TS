@@ -476,8 +476,11 @@ states a floor the signature's must reach
 [[RFC 4055 §3.3](https://www.rfc-editor.org/rfc/rfc4055#section-3.3)], so a key
 asking for twenty octets is a key every `PS*` can sign for. With the parameters
 absent, what the identifier restricts is the scheme and not an algorithm, and
-nothing here enforces that: a key would have to carry a family rather than an
-algorithm, and "RSASSA-PSS with whichever hash" is not a name COSE has.
+"RSASSA-PSS with whichever hash" is not a name COSE has. So the certificate
+keeps it, as `restrictedToRsassaPss`, and `verifyWithCertificateChain` refuses
+a message in any other scheme under such a key, with or without parameters.
+RFC 4055 states the restriction as what the key owner wishes rather than as a
+duty of the verifier, and it is honoured all the same.
 
 The certificates the test suite reads are minted by Bouncy Castle rather than
 written here, which is not a convenience: a DER parser checked against
