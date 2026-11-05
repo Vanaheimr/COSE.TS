@@ -44,7 +44,8 @@ import { contentsOf, contextTag, derBitString, derBitStringRaw,
          derTime, derUnsignedInteger,
          DerReader, Tag }                 from './asn1.ts';
 import type { Asn1Node }                  from './asn1.ts';
-import { CoseAlgorithms, verifyWith }     from './algorithm.ts';
+import { CoseAlgorithms, sameAlgorithm,
+         verifyWith }                     from './algorithm.ts';
 import type { CoseAlgorithm }             from './algorithm.ts';
 import { CoseCurves }                     from './curve.ts';
 import type { CoseCurve }                 from './curve.ts';
@@ -554,6 +555,26 @@ export class X509Certificate {
             return notVerified(`The certificate '${this.subject.toString()}' names the issuer '${this.issuer.toString()}', which is not the subject of '${issuer.subject.toString()}'!`);
 
         const key = issuer.publicKey;
+
+        // An issuer whose key is written as id-RSASSA-PSS has restricted it
+        // "exclusively to RSASSA-PSS" [RFC 4055, Section 3.1], and the
+        // certificates it signs are no exception. Where its parameters name a
+        // hash, the key carries the one PS* they describe, and "all
+        // parameters in the signature structure algorithm identifier MUST
+        // match the parameters in the key structure algorithm identifier
+        // except the saltLength field" [RFC 4055, Section 3.3] - so the PS*
+        // has to be the same one. The salt needs no comparison of its own: a
+        // certificate's PS* signs with a salt as long as its hash, which is
+        // never below the floor the key's PS* was read with.
+        if (issuer.restrictedToRsassaPss) {
+
+            if (this.signatureAlgorithm.family !== 'rsapss')
+                return notVerified(`The certificate '${this.subject.toString()}' is signed with '${this.signatureAlgorithm.name}', which is not RSASSA-PSS, by '${issuer.subject.toString()}', which restricts its key to RSASSA-PSS [RFC 4055, Section 3.1]!`);
+
+            if (key.algorithm !== null && !sameAlgorithm(key.algorithm, this.signatureAlgorithm))
+                return notVerified(`The certificate '${this.subject.toString()}' is signed with '${this.signatureAlgorithm.name}' by '${issuer.subject.toString()}', which restricts its key to '${key.algorithm.name}' [RFC 4055, Section 3.3]!`);
+
+        }
 
         let signature: Uint8Array;
 

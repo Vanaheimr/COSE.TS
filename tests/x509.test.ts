@@ -758,8 +758,8 @@ describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', (
     const RSA_ENCRYPTION = '300D06092A864886F70D0101010500';
 
     /**
-     * `rsaMeter` with its subject public key algorithm replaced, and the three
-     * lengths above it redone.
+     * A corpus certificate, `rsaMeter` unless named otherwise, with its subject
+     * public key algorithm replaced, and the three lengths above it redone.
      *
      * The `patched` helper above cannot reach this one: an identifier naming
      * its parameters is longer than `rsaEncryption`'s and one omitting them is
@@ -773,13 +773,13 @@ describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', (
      * what the conformance suite mints, where the other implementation can be
      * asked about it as well.
      */
-    const withKeyAlgorithm = (identifier: string): Uint8Array => {
+    const withKeyAlgorithm = (identifier: string, name = 'rsaMeter'): Uint8Array => {
 
-        const whole = certificates.rsaMeter!;
+        const whole = certificates[name]!;
         const at    = whole.indexOf(RSA_ENCRYPTION);
 
         if (at < 0 || whole.includes(RSA_ENCRYPTION, at + 1))
-            throw new Error('rsaMeter does not hold exactly one rsaEncryption identifier!');
+            throw new Error(`${name} does not hold exactly one rsaEncryption identifier!`);
 
         const grew = (identifier.length - RSA_ENCRYPTION.length) / 2;
 
@@ -827,6 +827,10 @@ describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', (
         // identifier with itself has to give `rsaMeter` as the corpus minted
         // it, or every test below is a test of the surgery instead.
         expect(hex(withKeyAlgorithm(RSA_ENCRYPTION))).toBe(certificates.rsaMeter!);
+
+        // And the same for the two issuers the tests further down rewrite.
+        for (const name of ['rsaManufacturerCA', 'rsaPssManufacturerCA'])
+            expect(hex(withKeyAlgorithm(RSA_ENCRYPTION, name)), name).toBe(certificates[name]!);
 
     });
 
@@ -968,6 +972,92 @@ describe('id-RSASSA-PSS says what a key is for, where rsaEncryption does not', (
 
         expect(parse(pssKey('04', '020120')))
             .toThrow(/holds a key restricted to RSASSA-PSS parameters that name the hash '2\.16\.840\.1\.101\.3\.4\.2\.4'/u);
+
+    });
+
+    /**
+     * A corpus issuer with its key written as `identifier`. Its own body no
+     * longer matches the signature its root made, which costs nothing here:
+     * `verifySignedBy` asks for the signature on the certificate it is called
+     * on, under the issuer's key, and the key's two integers are unchanged.
+     */
+    const issuerWith = (identifier: string, name: string): X509Certificate =>
+        X509Certificate.parse(withKeyAlgorithm(identifier, name));
+
+    const PSS_WITHOUT_PARAMETERS = '300B06092A864886F70D01010A';
+
+    const refusal = (result: { verified: boolean; reason?: string }): string =>
+        result.verified ? '' : result.reason ?? '';
+
+    it('holds the certificates an issuer signs to the scheme its key is restricted to', () => {
+
+        // The restriction is the key's, and the key of an issuer is what
+        // signs certificates. Both of these are signed with RSASSA-PKCS1-v1_5,
+        // and under the key naming SHA-256 the hash of the first would match.
+        for (const identifier of [PSS_WITHOUT_PARAMETERS, pssKey('01', '020120')])
+            for (const [subject, algorithm] of [['rsaMeter',         'RS256'],
+                                                ['rsaMeterWideHash', 'RS512']] as const) {
+
+                const result = certificate(subject).verifySignedBy(issuerWith(identifier, 'rsaManufacturerCA'));
+
+                expect(result.verified, subject).toBe(false);
+                expect(refusal(result), subject)
+                    .toBe(`The certificate '${certificate(subject).subject.toString()}' is signed with '${algorithm}', which is not RSASSA-PSS, by 'CN=RSA Meter Manufacturer CA', which restricts its key to RSASSA-PSS [RFC 4055, Section 3.1]!`);
+
+            }
+
+    });
+
+    it('holds them to the one PS* its parameters name, and to no hash without them', () => {
+
+        // rsaPssMeter is signed with PS256 and rsaPssMeterWideHash with PS512,
+        // both by rsaPssManufacturerCA. "All parameters in the signature
+        // structure algorithm identifier MUST match the parameters in the key
+        // structure algorithm identifier except the saltLength field" [RFC
+        // 4055, Section 3.3], so a key naming one hash signs the one and not
+        // the other; a key naming none is scenario 2 and signs both.
+        const verifies = (identifier: string, subject: string): boolean =>
+            certificate(subject).verifySignedBy(issuerWith(identifier, 'rsaPssManufacturerCA')).verified;
+
+        expect(verifies(pssKey('01', '020120'), 'rsaPssMeter'))        .toBe(true);
+        expect(verifies(pssKey('01', '020120'), 'rsaPssMeterWideHash')).toBe(false);
+
+        expect(verifies(pssKey('03', '020140'), 'rsaPssMeter'))        .toBe(false);
+        expect(verifies(pssKey('03', '020140'), 'rsaPssMeterWideHash')).toBe(true);
+
+        expect(verifies(PSS_WITHOUT_PARAMETERS, 'rsaPssMeter'))        .toBe(true);
+        expect(verifies(PSS_WITHOUT_PARAMETERS, 'rsaPssMeterWideHash')).toBe(true);
+
+        // A salt floor of 20 in the key is cleared by the 32 of PS256.
+        expect(verifies(pssKey('01', '020114'), 'rsaPssMeter'))        .toBe(true);
+
+        expect(refusal(certificate('rsaPssMeterWideHash').verifySignedBy(issuerWith(pssKey('01', '020120'), 'rsaPssManufacturerCA'))))
+            .toBe(`The certificate '${certificate('rsaPssMeterWideHash').subject.toString()}' is signed with 'PS512' by 'CN=RSA-PSS Meter Manufacturer CA', which restricts its key to 'PS256' [RFC 4055, Section 3.3]!`);
+
+    });
+
+    it('leaves an issuer with an rsaEncryption key open to either scheme', () => {
+
+        // The control: the same surgery replacing the identifier with itself.
+        for (const [subject, issuer] of [['rsaMeter',            'rsaManufacturerCA'],
+                                         ['rsaMeterWideHash',    'rsaManufacturerCA'],
+                                         ['rsaPssMeter',         'rsaPssManufacturerCA'],
+                                         ['rsaPssMeterWideHash', 'rsaPssManufacturerCA']] as const)
+            expect(certificate(subject).verifySignedBy(issuerWith(RSA_ENCRYPTION, issuer)).verified, subject).toBe(true);
+
+    });
+
+    it('holds a trust anchor to the restriction as well', () => {
+
+        // An anchor is trusted to be who it is, not to sign however it likes:
+        // the last certificate of a chain is checked against it by the same
+        // verifySignedBy, and the anchor's key carries the same restriction.
+        const validates = (identifier: string): boolean =>
+            new CoseCertificateChain([certificate('rsaMeter')])
+                .validate([issuerWith(identifier, 'rsaManufacturerCA')], { at: AT }).verified;
+
+        expect(validates(PSS_WITHOUT_PARAMETERS)).toBe(false);
+        expect(validates(RSA_ENCRYPTION))        .toBe(true);
 
     });
 

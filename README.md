@@ -480,7 +480,11 @@ absent, what the identifier restricts is the scheme and not an algorithm, and
 keeps it, as `restrictedToRsassaPss`, and `verifyWithCertificateChain` refuses
 a message in any other scheme under such a key, with or without parameters.
 RFC 4055 states the restriction as what the key owner wishes rather than as a
-duty of the verifier, and it is honoured all the same.
+duty of the verifier, and it is honoured all the same. It is the key's and not
+the message's, so an authority whose key is written that way is held to it for
+the certificates it signs as well, in the chain or as the trust anchor: the
+scheme, and where its parameters name a hash, that `PS*`, which Section 3.3
+does make a MUST.
 
 The certificates the test suite reads are minted by Bouncy Castle rather than
 written here, which is not a convenience: a DER parser checked against

@@ -47,6 +47,22 @@ Until 1.0.0 the public API may change in minor releases.
   Styx honours it since 70e1eac1. A message signed with RSASSA-PKCS1-v1_5
   under such a key, which 0.14.0 verified when the parameters were absent, is
   refused. An `rsaEncryption` key stays open to either scheme.
+- **An authority's `id-RSASSA-PSS` key signs nothing but RSASSA-PSS either.**
+  The restriction is the key's, and the key of an issuer is what signs
+  certificates, yet `X509Certificate.verifySignedBy` checked only that the
+  signature verified under the issuer's two integers. It now refuses a
+  certificate signed in the other scheme by such an issuer, with or without
+  parameters, and, where the issuer's parameters name a hash, one signed with
+  any other `PS*`: "all parameters in the signature structure algorithm
+  identifier MUST match the parameters in the key structure algorithm
+  identifier except the saltLength field" [RFC 4055, Section 3.3]. The salt
+  needs no comparison of its own, since a certificate's `PS*` signs with a salt
+  as long as its hash and a key's floor is never above it. A trust anchor is
+  held to it too, because the last certificate of a chain is checked against
+  it by the same method. Under such an authority, a certificate signed with
+  RSASSA-PKCS1-v1_5, or with another hash than the one the authority's key
+  names, which 0.14.0 accepted, is refused. Styx refuses the same since
+  7642de3d.
 
 ### Development
 
