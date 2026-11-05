@@ -8,6 +8,19 @@ Until 1.0.0 the public API may change in minor releases.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-05
+
+A minor, for either of two reasons. It reads and verifies the countersignature
+of RFC 8152 at label 7, which RFC 9052 says new implementations must
+understand, and adds public API for it and for the restriction a certificate
+puts on its key. And it refuses what 0.14.0 accepted under a key written as
+`id-RSASSA-PSS`: a message signed with RSASSA-PKCS1-v1_5 under such an
+end-entity key, and a certificate signed in the other scheme, or with another
+hash than the key names, by such an authority or trust anchor. An
+`rsaEncryption` key is not affected. The codec stays at `^0.12.0`, and every
+message 0.14.0 wrote, this release writes byte for byte the same. Styx refuses
+the same since 70e1eac1 and 7642de3d.
+
 ### Added
 
 - **The countersignature of RFC 8152 is read and verified** (header parameter
